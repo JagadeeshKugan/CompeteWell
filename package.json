@@ -1,0 +1,26 @@
+{
+  "name": "ai-saas-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Production-ready AI SaaS Monorepo",
+  "workspaces": [
+    "apps/web",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=apps/web",
+    "build:web": "npm run build --workspace=apps/web",
+    "start:web": "npm run start --workspace=apps/web",
+    "lint:web": "npm run lint --workspace=apps/web",
+    "lint:shared": "npm run lint --workspace=packages/shared",
+    "build:shared": "npm run build --workspace=packages/shared",
+    "dev:api": "cd apps/api && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+    "lint:api": "cd apps/api && ruff check . && black --check . && mypy .",
+    "format:api": "cd apps/api && ruff check --fix . && black .",
+    "lint": "npm run lint:web && npm run lint:shared",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.2.5"
+  }
+}
