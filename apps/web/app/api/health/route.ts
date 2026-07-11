@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { APIHealthStatus } from "../../../../../packages/shared/src";
+import { APIHealthStatus } from "@saas/shared";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +22,7 @@ export async function GET() {
     } else {
       apiStatus = "error";
     }
-  } catch (error) {
+  } catch {
     apiStatus = "error";
   }
 
