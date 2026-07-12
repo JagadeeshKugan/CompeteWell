@@ -35,5 +35,10 @@ class Settings(BaseSettings):
     REDIS_DB: int = 0
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # Database Configurations
+    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/competewell"
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+
 
 settings = Settings()
+

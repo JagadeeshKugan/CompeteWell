@@ -2,16 +2,17 @@
 
 import React, { useState, useRef, useEffect, Suspense } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Mail, ArrowLeft, Loader2, AlertCircle, CheckCircle } from "lucide-react";
 
+import { useAuth } from "@/hooks/useAuth";
 import { AuthLayout } from "@/components/auth-layout";
 import { Button } from "@/components/ui/button";
 
-function VerifyOtpContent() {
-  const router = useRouter();
+function VerifyEmailContent() {
   const searchParams = useSearchParams();
-  const email = searchParams.get("email") || "your email";
+  const email = searchParams.get("email") || "";
+  const { verifyEmail, resendOtp } = useAuth();
 
   // OTP inputs state: 6 digits
   const [otp, setOtp] = useState<string[]>(Array(6).fill(""));
@@ -92,19 +93,29 @@ function VerifyOtpContent() {
     inputRefs.current[5]?.focus();
   };
 
-  const handleResend = () => {
-    if (cooldown > 0) return;
+  const handleResend = async () => {
+    if (cooldown > 0 || !email) return;
     
-    // Simulate sending a new OTP code
-    setCooldown(30);
+    setSubmitting(true);
     setError(null);
-    setSuccess("A new 6-digit code has been sent to your email.");
-    setOtp(Array(6).fill(""));
+    setSuccess(null);
     
-    // Autofocus first input box
-    setTimeout(() => {
-      inputRefs.current[0]?.focus();
-    }, 50);
+    try {
+      await resendOtp(email);
+      setCooldown(30);
+      setSuccess("A new 6-digit code has been sent to your email.");
+      setOtp(Array(6).fill(""));
+      
+      // Autofocus first input box
+      setTimeout(() => {
+        inputRefs.current[0]?.focus();
+      }, 50);
+    } catch (err: unknown) {
+      const error = err as Error;
+      setError(error.message || "Failed to resend verification code.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -118,27 +129,19 @@ function VerifyOtpContent() {
       return;
     }
 
+    if (!email) {
+      setError("Email address is missing. Please register again.");
+      return;
+    }
+
     setSubmitting(true);
 
     try {
-      const response = await fetch("/api/auth/verify-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, otp: otpCode }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.error || "Verification failed. Please check your code.");
-      } else {
-        setSuccess("Success! Redirecting to workspace...");
-        setTimeout(() => {
-          router.push(data.redirectTo || "/dashboard");
-        }, 1200);
-      }
-    } catch (err) {
-      setError("Failed to connect to verification server.");
+      await verifyEmail({ email, otp: otpCode });
+      setSuccess("Success! Redirecting to login...");
+    } catch (err: unknown) {
+      const error = err as Error;
+      setError(error.message || "Verification failed. Please check your code.");
     } finally {
       setSubmitting(false);
     }
@@ -150,7 +153,7 @@ function VerifyOtpContent() {
   return (
     <AuthLayout
       title="Verify your email"
-      subtitle="Enter the 6-digit code we just sent to your email."
+      subtitle={email ? `Enter the 6-digit code we just sent to ${email}.` : "Enter the 6-digit code we just sent to your email."}
     >
       <form onSubmit={onSubmit} noValidate className="space-y-6">
         {/* Messages */}
@@ -242,7 +245,7 @@ function VerifyOtpContent() {
         <div className="text-center">
           {cooldown > 0 ? (
             <p className="text-sm text-slate-500 font-medium select-none">
-              Didn't get a code? Resend in <span className="font-semibold text-slate-800">{cooldown}s</span>
+              Didn&apos;t get a code? Resend in <span className="font-semibold text-slate-800">{cooldown}s</span>
             </p>
           ) : (
             <button
@@ -250,7 +253,7 @@ function VerifyOtpContent() {
               onClick={handleResend}
               className="text-sm font-semibold text-blue-600 hover:text-blue-700 hover:underline transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30 rounded px-1.5 py-0.5"
             >
-              Didn't get a code? Resend code
+              Didn&apos;t get a code? Resend code
             </button>
           )}
         </div>
@@ -269,8 +272,7 @@ function VerifyOtpContent() {
   );
 }
 
-// Suspense Boundary wrapper for Next.js build compatibility when using useSearchParams
-export default function VerifyOtpPage() {
+export default function VerifyEmailPage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen flex items-center justify-center bg-[#fcfdfe]">
@@ -280,7 +282,7 @@ export default function VerifyOtpPage() {
         </div>
       </div>
     }>
-      <VerifyOtpContent />
+      <VerifyEmailContent />
     </Suspense>
   );
 }

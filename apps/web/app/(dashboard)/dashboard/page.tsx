@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Plus, ChevronDown, Check } from "lucide-react";
 import MetricCard from "../../../components/dashboard/MetricCard";
 import RecentAnalyses from "../../../components/dashboard/RecentAnalyses";
@@ -9,11 +9,18 @@ import BusinessActivity from "../../../components/dashboard/BusinessActivity";
 import RecentReports from "../../../components/reports/RecentReports";
 import { useBusiness } from "../../../hooks/useBusiness";
 import { useAppState } from "../../../hooks/useAppState";
+import { useAuth } from "../../../hooks/useAuth";
 
 export default function DashboardPage() {
   const { selectedBusiness, setSelectedBusiness, businesses, setShowAnalyzeModal } = useBusiness();
   const { searchQuery } = useAppState();
+  const { user } = useAuth();
   const [showBusinessDropdown, setShowBusinessDropdown] = useState(false);
+
+  const firstName = useMemo(() => {
+    if (!user?.full_name) return "User";
+    return user.full_name.trim().split(" ")[0];
+  }, [user?.full_name]);
 
   return (
     <>
@@ -21,8 +28,9 @@ export default function DashboardPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <span className="text-xs text-slate-400 font-semibold tracking-wider uppercase">
-            Welcome back, Alex
+            Welcome back, {firstName}
           </span>
+
           <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight mt-0.5">
             Dashboard
           </h1>

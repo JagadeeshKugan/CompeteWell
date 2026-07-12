@@ -1,69 +1,60 @@
 import { NextResponse } from "next/server";
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 export async function POST(request: Request) {
-  const startTime = Date.now();
-  
   try {
     const body = await request.json();
     const { email, password } = body;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
-    // 1. Server-side validation (Crucial SAST defense: Never trust client inputs)
-    if (!email || !password) {
+    const response = await fetch(`${apiUrl}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
       return NextResponse.json(
-        { error: "Email and password are required" },
-        { status: 400 }
+        { error: data.detail || "Invalid email address or password." },
+        { status: response.status }
       );
     }
 
-    if (!EMAIL_RE.test(email)) {
-      return NextResponse.json(
-        { error: "Invalid email format" },
-        { status: 400 }
-      );
-    }
+    const { access_token, refresh_token, expires_in, refresh_token_expires_in, user } = data;
 
-    if (password.length < 8) {
-      return NextResponse.json(
-        { error: "Password must be at least 8 characters" },
-        { status: 400 }
-      );
-    }
+    // Determine redirect route based on onboarding completion status
+    const redirectTo = user.onboarding_completed ? "/dashboard" : "/onboarding";
 
-    // 2. Mock authentication lookup
-    // In production, check hashed password via bcrypt/argon2
-    const isValidUser = email === "user@competewell.com" && password === "Password123!";
+    const res = NextResponse.json({
+      success: true,
+      message: "Successfully signed in.",
+      user,
+      redirectTo,
+    });
 
-    // 3. Timing attack mitigation (DAST protection)
-    // Ensure all auth requests take a minimum amount of time to process
-    const elapsedTime = Date.now() - startTime;
-    const minResponseTime = 600; // ms
-    if (elapsedTime < minResponseTime) {
-      await new Promise((resolve) => setTimeout(resolve, minResponseTime - elapsedTime));
-    }
+    // Set Access Token Cookie
+    res.cookies.set("access_token", access_token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: expires_in,
+    });
 
-    if (isValidUser) {
-      // In production, sign JWT and set as HttpOnly cookie:
-      // const response = NextResponse.json({ success: true });
-      // response.cookies.set("token", token, { httpOnly: true, secure: true, sameSite: "strict" });
-      return NextResponse.json({
-        success: true,
-        message: "Successfully signed in",
-        user: { email, name: "John Doe" },
-        redirectTo: "/dashboard",
-      });
-    }
+    // Set Refresh Token Cookie
+    res.cookies.set("refresh_token", refresh_token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: refresh_token_expires_in,
+    });
 
-    // 4. Account enumeration prevention (DAST defense)
-    // Return a generic error message so attackers cannot check if an email exists
-    return NextResponse.json(
-      { error: "Invalid email address or password" },
-      { status: 401 }
-    );
+    return res;
   } catch (error) {
     return NextResponse.json(
-      { error: "An unexpected authentication error occurred" },
+      { error: "Failed to connect to authentication server." },
       { status: 500 }
     );
   }

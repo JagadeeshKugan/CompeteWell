@@ -1,81 +1,82 @@
 "use client";
 
-import React, { useState, type FormEvent } from "react";
+import React, { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
 import { Eye, EyeOff, Loader2, Mail, Lock, User, AlertCircle } from "lucide-react";
 
+import { useAuth } from "@/hooks/useAuth";
 import { AuthLayout } from "@/components/auth-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const registerSchema = z
+  .object({
+    full_name: z
+      .string()
+      .min(1, "Full name is required")
+      .min(2, "Name must be at least 2 characters"),
+    email: z
+      .string()
+      .min(1, "Email address is required")
+      .email("Please enter a valid email address"),
+    password: z
+      .string()
+      .min(1, "Password is required")
+      .min(8, "Password must be at least 8 characters")
+      .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+      .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+      .regex(/[0-9]/, "Password must contain at least one number")
+      .regex(/[^A-Za-z0-9]/, "Password must contain at least one special character"),
+    confirm_password: z.string().min(1, "Please confirm your password"),
+    accept_terms: z.boolean().refine((val) => val === true, {
+      message: "You must accept the Terms of Service and Privacy Policy",
+    }),
+  })
+  .refine((data) => data.password === data.confirm_password, {
+    message: "Passwords do not match",
+    path: ["confirm_password"],
+  });
+
+type RegisterSchemaType = z.infer<typeof registerSchema>;
 
 export default function RegisterPage() {
-  const router = useRouter();
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const { register: registerUser } = useAuth();
   const [showPwd, setShowPwd] = useState(false);
-  
-  const [errors, setErrors] = useState<{ name?: string; email?: string; password?: string }>({});
+  const [showConfirmPwd, setShowConfirmPwd] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
 
-  function validate() {
-    const next: typeof errors = {};
-    
-    if (!name.trim()) {
-      next.name = "Full name is required";
-    } else if (name.trim().length < 2) {
-      next.name = "Name must be at least 2 characters";
-    }
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<RegisterSchemaType>({
+    resolver: zodResolver(registerSchema),
+    defaultValues: {
+      full_name: "",
+      email: "",
+      password: "",
+      confirm_password: "",
+      accept_terms: false,
+    },
+  });
 
-    if (!email) {
-      next.email = "Email address is required";
-    } else if (!EMAIL_RE.test(email)) {
-      next.email = "Please enter a valid email address";
-    }
-    
-    if (!password) {
-      next.password = "Password is required";
-    } else if (password.length < 8) {
-      next.password = "Password must be at least 8 characters";
-    }
-    
-    setErrors(next);
-    return Object.keys(next).length === 0;
-  }
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function onSubmit(values: RegisterSchemaType) {
     setSubmitError(null);
-
-    if (!validate()) return;
-    
-    setSubmitting(true);
-
     try {
-      const response = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password }),
+      await registerUser({
+        full_name: values.full_name,
+        email: values.email,
+        password: values.password,
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setSubmitError(data.error || "Registration failed. Please check your inputs.");
-      } else {
-        // Redirect to OTP verification page with pre-filled email
-        router.push(data.redirectTo || `/verify-otp?email=${encodeURIComponent(email)}`);
-      }
-    } catch (err) {
-      setSubmitError("Failed to connect to authentication server.");
-    } finally {
-      setSubmitting(false);
+    } catch (err: unknown) {
+      const error = err as Error;
+      setSubmitError(error.message || "Registration failed. Please check your inputs.");
     }
   }
 
@@ -92,7 +93,7 @@ export default function RegisterPage() {
         </>
       }
     >
-      <form onSubmit={onSubmit} noValidate className="space-y-5">
+      <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-5">
         {submitError && (
           <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-red-50 border border-red-100 text-red-700 text-xs animate-in fade-in duration-200">
             <AlertCircle className="h-4.5 w-4.5 shrink-0 text-red-500 mt-0.5" />
@@ -101,23 +102,23 @@ export default function RegisterPage() {
         )}
 
         <div className="space-y-1.5">
-          <Label htmlFor="name">Full Name</Label>
+          <Label htmlFor="full_name">Full Name</Label>
           <div className="relative">
             <User className="pointer-events-none absolute left-3.5 top-1/2 h-4.5 w-4.5 -translate-y-1/2 text-slate-400" />
             <Input
-              id="name"
+              id="full_name"
               type="text"
               autoComplete="name"
               placeholder="John Doe"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onBlur={validate}
-              aria-invalid={!!errors.name}
-              className={`pl-10.5 ${errors.name ? "border-red-300 focus:border-red-500 focus:ring-red-500/10" : ""}`}
+              {...register("full_name")}
+              aria-invalid={!!errors.full_name}
+              className={`pl-10.5 ${errors.full_name ? "border-red-300 focus:border-red-500 focus:ring-red-500/10" : ""}`}
             />
           </div>
-          {errors.name ? (
-            <p className="text-xs text-red-600 font-medium animate-in fade-in slide-in-from-top-1 duration-150">{errors.name}</p>
+          {errors.full_name ? (
+            <p className="text-xs text-red-600 font-medium animate-in fade-in slide-in-from-top-1 duration-150">
+              {errors.full_name.message}
+            </p>
           ) : null}
         </div>
 
@@ -130,15 +131,15 @@ export default function RegisterPage() {
               type="email"
               autoComplete="email"
               placeholder="you@company.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onBlur={validate}
+              {...register("email")}
               aria-invalid={!!errors.email}
               className={`pl-10.5 ${errors.email ? "border-red-300 focus:border-red-500 focus:ring-red-500/10" : ""}`}
             />
           </div>
           {errors.email ? (
-            <p className="text-xs text-red-600 font-medium animate-in fade-in slide-in-from-top-1 duration-150">{errors.email}</p>
+            <p className="text-xs text-red-600 font-medium animate-in fade-in slide-in-from-top-1 duration-150">
+              {errors.email.message}
+            </p>
           ) : null}
         </div>
 
@@ -151,9 +152,7 @@ export default function RegisterPage() {
               type={showPwd ? "text" : "password"}
               autoComplete="new-password"
               placeholder="Create a secure password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onBlur={validate}
+              {...register("password")}
               aria-invalid={!!errors.password}
               className={`pl-10.5 pr-10.5 ${errors.password ? "border-red-300 focus:border-red-500 focus:ring-red-500/10" : ""}`}
             />
@@ -167,24 +166,65 @@ export default function RegisterPage() {
             </button>
           </div>
           {errors.password ? (
-            <p className="text-xs text-red-600 font-medium animate-in fade-in slide-in-from-top-1 duration-150">{errors.password}</p>
+            <p className="text-xs text-red-600 font-medium animate-in fade-in slide-in-from-top-1 duration-150">
+              {errors.password.message}
+            </p>
           ) : null}
         </div>
 
-        <div className="text-xs text-slate-400 leading-normal">
-          By signing up, you agree to our{" "}
-          <Link href="/login" className="underline hover:text-slate-600">
-            Terms of Service
-          </Link>{" "}
-          and{" "}
-          <Link href="/login" className="underline hover:text-slate-600">
-            Privacy Policy
-          </Link>
-          .
+        <div className="space-y-1.5">
+          <Label htmlFor="confirm_password">Confirm Password</Label>
+          <div className="relative">
+            <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4.5 w-4.5 -translate-y-1/2 text-slate-400" />
+            <Input
+              id="confirm_password"
+              type={showConfirmPwd ? "text" : "password"}
+              autoComplete="new-password"
+              placeholder="Confirm your password"
+              {...register("confirm_password")}
+              aria-invalid={!!errors.confirm_password}
+              className={`pl-10.5 pr-10.5 ${errors.confirm_password ? "border-red-300 focus:border-red-500 focus:ring-red-500/10" : ""}`}
+            />
+            <button
+              type="button"
+              onClick={() => setShowConfirmPwd((s) => !s)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-slate-400 hover:text-slate-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
+              aria-label={showConfirmPwd ? "Hide password" : "Show password"}
+            >
+              {showConfirmPwd ? <EyeOff className="h-4.5 w-4.5" /> : <Eye className="h-4.5 w-4.5" />}
+            </button>
+          </div>
+          {errors.confirm_password ? (
+            <p className="text-xs text-red-600 font-medium animate-in fade-in slide-in-from-top-1 duration-150">
+              {errors.confirm_password.message}
+            </p>
+          ) : null}
         </div>
 
-        <Button type="submit" className="w-full" disabled={submitting}>
-          {submitting ? (
+        <div className="space-y-1.5">
+          <div className="flex items-start gap-2.5">
+            <Checkbox id="accept_terms" {...register("accept_terms")} />
+            <label htmlFor="accept_terms" className="cursor-pointer text-xs text-slate-500 leading-normal select-none">
+              I accept the{" "}
+              <Link href="/login" className="underline hover:text-slate-600">
+                Terms of Service
+              </Link>{" "}
+              and{" "}
+              <Link href="/login" className="underline hover:text-slate-600">
+                Privacy Policy
+              </Link>
+              .
+            </label>
+          </div>
+          {errors.accept_terms ? (
+            <p className="text-xs text-red-600 font-medium animate-in fade-in slide-in-from-top-1 duration-150">
+              {errors.accept_terms.message}
+            </p>
+          ) : null}
+        </div>
+
+        <Button type="submit" className="w-full" disabled={isSubmitting}>
+          {isSubmitting ? (
             <>
               <Loader2 className="h-4.5 w-4.5 animate-spin" /> Creating account…
             </>

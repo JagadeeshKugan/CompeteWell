@@ -1,19 +1,20 @@
-import { useAppStore } from "../store/app-context";
+import { useAppStore as useZustandStore } from "../store/useAppStore";
+import { useAppStore as useContextStore } from "../store/app-context";
 
 export function useAppState() {
+  const { sidebarOpen, setSidebarOpen, toggleSidebar } = useZustandStore();
   const {
-    isSidebarCollapsed,
-    setIsSidebarCollapsed,
     searchQuery,
     setSearchQuery,
     webHealth,
     apiHealth,
     checkHealthStatus,
-  } = useAppStore();
+  } = useContextStore();
 
   return {
-    isSidebarCollapsed,
-    setIsSidebarCollapsed,
+    isSidebarCollapsed: !sidebarOpen,
+    setIsSidebarCollapsed: (collapsed: boolean) => setSidebarOpen(!collapsed),
+    toggleSidebar,
     searchQuery,
     setSearchQuery,
     webHealth,

@@ -11,13 +11,23 @@ import {
   Sparkles,
   Settings,
   TrendingUp,
+  LogOut,
 } from "lucide-react";
 import { useAppState } from "../../hooks/useAppState";
+import { useAuth } from "../../hooks/useAuth";
 
 export default function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
   const { isSidebarCollapsed: isCollapsed } = useAppState();
+  const { user, logout } = useAuth();
+
+  const initials = React.useMemo(() => {
+    if (!user?.full_name) return "US";
+    const parts = user.full_name.trim().split(" ");
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }, [user?.full_name]);
 
   // Derive active tab from pathname
   const activeTab = React.useMemo(() => {
@@ -138,20 +148,35 @@ export default function Sidebar() {
           } relative group`}
         >
           <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-semibold text-xs flex-shrink-0">
-            AM
+            {initials}
           </div>
           {!isCollapsed && (
-            <div className="flex flex-col truncate">
-              <span className="font-medium text-slate-800 text-xs">Alex Morgan</span>
-              <span className="text-[10px] text-slate-400 truncate">alex@company.com</span>
-            </div>
+            <>
+              <div className="flex flex-col truncate flex-1">
+                <span className="font-medium text-slate-800 text-xs">{user?.full_name || "Guest User"}</span>
+                <span className="text-[10px] text-slate-400 truncate">{user?.email || "guest@company.com"}</span>
+              </div>
+              <button
+                onClick={logout}
+                className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                title="Sign out"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            </>
           )}
           
           {/* Tooltip for profile in collapsed mode */}
           {isCollapsed && (
-            <div className="absolute left-full ml-3 p-2 bg-slate-900 text-white rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 z-50 shadow-md">
-              <div className="text-xs font-semibold">Alex Morgan</div>
-              <div className="text-[10px] text-slate-400">alex@company.com</div>
+            <div className="absolute left-full ml-3 p-3 bg-slate-900 text-white rounded-xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 z-50 shadow-md">
+              <div className="text-xs font-semibold">{user?.full_name || "Guest User"}</div>
+              <div className="text-[10px] text-slate-400 mb-2">{user?.email || "guest@company.com"}</div>
+              <button
+                onClick={logout}
+                className="w-full flex items-center gap-2 px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-[10px] font-bold rounded cursor-pointer pointer-events-auto"
+              >
+                <LogOut className="w-3 h-3" /> Sign out
+              </button>
             </div>
           )}
         </div>

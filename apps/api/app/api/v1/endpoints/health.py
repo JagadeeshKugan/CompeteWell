@@ -16,18 +16,33 @@ def check_health() -> HealthStatus:
     """
     uptime = time.time() - start_time
 
-    # Dependent services status placeholders
+    from sqlalchemy import text
+    from app.core.database import SessionLocal
+
+    # Dependent services status check
+    database_status = "offline"
+    try:
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        db.close()
+        database_status = "healthy"
+    except Exception as e:
+        database_status = f"unhealthy: {str(e)}"
+
     services_status = {
-        "database": "not_implemented",
+        "database": database_status,
         "redis": "not_implemented",
         "worker": "not_implemented",
     }
 
+    overall_status = "ok" if database_status == "healthy" else "error"
+
     return HealthStatus(
-        status="ok",
+        status=overall_status,
         environment=settings.ENVIRONMENT,
         timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         version="1.0.0",
         services=services_status,
         uptime_seconds=round(uptime, 2),
     )
+

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { APIHealthStatus } from "@saas/shared";
+import { APIHealthStatus } from "@competewell/shared";
 
 export const dynamic = "force-dynamic";
 

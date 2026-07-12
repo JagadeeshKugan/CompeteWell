@@ -1,6 +1,6 @@
 "use client";
 
-import { SUPPORTED_MODELS } from "@saas/shared";
+import { SUPPORTED_MODELS } from "@competewell/shared";
 
 export default function AnalysisPage() {
   return (

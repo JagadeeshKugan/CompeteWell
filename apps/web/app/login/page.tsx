@@ -1,10 +1,13 @@
 "use client";
 
-import React, { useState, type FormEvent } from "react";
+import React, { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
 import { Eye, EyeOff, Loader2, Mail, Lock, AlertCircle } from "lucide-react";
 
+import { useAuth } from "@/hooks/useAuth";
 import { AuthLayout } from "@/components/auth-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,62 +15,49 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const loginSchema = z.object({
+  email: z
+    .string()
+    .min(1, "Email address is required")
+    .email("Please enter a valid email address"),
+  password: z
+    .string()
+    .min(1, "Password is required")
+    .min(8, "Password must be at least 8 characters"),
+  rememberMe: z.boolean().default(false),
+});
+
+type LoginSchemaType = z.infer<typeof loginSchema>;
 
 export default function LoginPage() {
-  const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const { login } = useAuth();
   const [showPwd, setShowPwd] = useState(false);
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
 
-  function validate() {
-    const next: typeof errors = {};
-    if (!email) {
-      next.email = "Email address is required";
-    } else if (!EMAIL_RE.test(email)) {
-      next.email = "Please enter a valid email address";
-    }
-    
-    if (!password) {
-      next.password = "Password is required";
-    } else if (password.length < 8) {
-      next.password = "Password must be at least 8 characters";
-    }
-    
-    setErrors(next);
-    return Object.keys(next).length === 0;
-  }
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<LoginSchemaType>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: "",
+      password: "",
+      rememberMe: false,
+    },
+  });
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function onSubmit(values: LoginSchemaType) {
     setSubmitError(null);
-
-    if (!validate()) return;
-    
-    setSubmitting(true);
-
     try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+      await login({
+        email: values.email,
+        password: values.password,
+        rememberMe: values.rememberMe,
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setSubmitError(data.error || "Invalid credentials. Please try again.");
-      } else {
-        // Success
-        router.push(data.redirectTo || "/dashboard");
-      }
-    } catch (err) {
-      setSubmitError("Failed to connect to authentication server.");
-    } finally {
-      setSubmitting(false);
+    } catch (err: unknown) {
+      const error = err as Error;
+      setSubmitError(error.message || "Invalid credentials. Please try again.");
     }
   }
 
@@ -77,14 +67,15 @@ export default function LoginPage() {
       subtitle="Sign in to continue to your workspace."
       footer={
         <>
-          Don't have an account?{" "}
+          Don&apos;t have an account?{" "}
           <Link href="/register" className="font-semibold text-blue-600 hover:underline">
             Create one
           </Link>
         </>
       }
+
     >
-      <form onSubmit={onSubmit} noValidate className="space-y-5">
+      <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-5">
         {submitError && (
           <div className="flex items-start gap-2.5 p-3.5 rounded-xl bg-red-50 border border-red-100 text-red-700 text-xs animate-in fade-in duration-200">
             <AlertCircle className="h-4.5 w-4.5 shrink-0 text-red-500 mt-0.5" />
@@ -101,22 +92,22 @@ export default function LoginPage() {
               type="email"
               autoComplete="email"
               placeholder="you@company.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onBlur={validate}
+              {...register("email")}
               aria-invalid={!!errors.email}
               className={`pl-10.5 ${errors.email ? "border-red-300 focus:border-red-500 focus:ring-red-500/10" : ""}`}
             />
           </div>
           {errors.email ? (
-            <p className="text-xs text-red-600 font-medium animate-in fade-in slide-in-from-top-1 duration-150">{errors.email}</p>
+            <p className="text-xs text-red-600 font-medium animate-in fade-in slide-in-from-top-1 duration-150">
+              {errors.email.message}
+            </p>
           ) : null}
         </div>
 
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <Label htmlFor="password">Password</Label>
-            <Link href="/login" className="text-xs font-semibold text-blue-600 hover:underline">
+            <Link href="/forgot-password" className="text-xs font-semibold text-blue-600 hover:underline">
               Forgot password?
             </Link>
           </div>
@@ -127,9 +118,7 @@ export default function LoginPage() {
               type={showPwd ? "text" : "password"}
               autoComplete="current-password"
               placeholder="Enter your password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onBlur={validate}
+              {...register("password")}
               aria-invalid={!!errors.password}
               className={`pl-10.5 pr-10.5 ${errors.password ? "border-red-300 focus:border-red-500 focus:ring-red-500/10" : ""}`}
             />
@@ -143,19 +132,21 @@ export default function LoginPage() {
             </button>
           </div>
           {errors.password ? (
-            <p className="text-xs text-red-600 font-medium animate-in fade-in slide-in-from-top-1 duration-150">{errors.password}</p>
+            <p className="text-xs text-red-600 font-medium animate-in fade-in slide-in-from-top-1 duration-150">
+              {errors.password.message}
+            </p>
           ) : null}
         </div>
 
         <div className="flex items-center gap-2.5">
-          <Checkbox id="remember" />
+          <Checkbox id="remember" {...register("rememberMe")} />
           <label htmlFor="remember" className="cursor-pointer text-sm text-slate-500 font-medium select-none">
             Remember me for 30 days
           </label>
         </div>
 
-        <Button type="submit" className="w-full" disabled={submitting}>
-          {submitting ? (
+        <Button type="submit" className="w-full" disabled={isSubmitting}>
+          {isSubmitting ? (
             <>
               <Loader2 className="h-4.5 w-4.5 animate-spin" /> Signing in…
             </>

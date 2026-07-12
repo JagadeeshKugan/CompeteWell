@@ -23,8 +23,18 @@ if settings.ALLOWED_ORIGINS:
         allow_headers=["*"],
     )
 
+
+@app.on_event("startup")
+def on_startup() -> None:
+    from app.core.database import Base, engine
+    import app.models  # noqa: F401
+    Base.metadata.create_all(bind=engine)
+
+
+
 # Versioned APIs
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
 
 # Root level endpoints for orchestrators and load balancers
 app.include_router(health.router, prefix="/health", tags=["Health"])
