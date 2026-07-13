@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { formatError } from "@/lib/api/error";
 
 export async function POST(request: Request) {
   try {
@@ -16,7 +17,7 @@ export async function POST(request: Request) {
 
     if (!response.ok) {
       return NextResponse.json(
-        { error: data.detail || "Invalid email address or password." },
+        { error: formatError(data, "Invalid email address or password.") },
         { status: response.status }
       );
     }

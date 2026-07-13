@@ -12,6 +12,7 @@ import {
   Settings,
   TrendingUp,
   LogOut,
+  Search,
 } from "lucide-react";
 import { useAppState } from "../../hooks/useAppState";
 import { useAuth } from "../../hooks/useAuth";
@@ -33,6 +34,7 @@ export default function Sidebar() {
   const activeTab = React.useMemo(() => {
     if (pathname.startsWith("/dashboard")) return "dashboard";
     if (pathname.startsWith("/businesses")) return "businesses";
+    if (pathname.startsWith("/business-lookup")) return "business-lookup";
     if (pathname.startsWith("/analysis")) return "analysis";
     if (pathname.startsWith("/competitors")) return "competitors";
     if (pathname.startsWith("/reports")) return "reports";
@@ -44,6 +46,7 @@ export default function Sidebar() {
   const workspaceItems = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, route: "/dashboard" },
     { id: "businesses", label: "Businesses", icon: Building2, route: "/businesses" },
+    { id: "business-lookup", label: "Business Lookup", icon: Search, route: "/business-lookup" },
     { id: "analysis", label: "Analysis", icon: LineChart, route: "/analysis" },
     { id: "competitors", label: "Competitors", icon: Users2, route: "/competitors" },
     { id: "reports", label: "Reports", icon: FileText, route: "/reports" },

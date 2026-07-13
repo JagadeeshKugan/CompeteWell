@@ -1,13 +1,14 @@
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
+
 from pydantic import BaseModel, EmailStr, Field
 
 
 class UserRegister(BaseModel):
     full_name: str = Field(..., min_length=2, max_length=100)
     email: EmailStr
-    password: str = Field(..., min_length=8, max_length=100)
+    password: str = Field(..., min_length=8, max_length=72)
 
 
 class UserLogin(BaseModel):
@@ -31,12 +32,12 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     otp: str = Field(..., min_length=6, max_length=6)
     email: EmailStr
-    new_password: str = Field(..., min_length=8, max_length=100)
+    new_password: str = Field(..., min_length=8, max_length=72)
 
 
 class OnboardRequest(BaseModel):
     business_name: str = Field(..., min_length=1, max_length=200)
-    website_url: Optional[str] = Field(None, max_length=500)
+    website_url: str | None = Field(None, max_length=500)
 
 
 class TokenResponse(BaseModel):
@@ -64,8 +65,7 @@ class LoginResponseSchema(TokenResponse):
     user: UserResponse
 
 
-
 class GenericResponse(BaseModel):
     success: bool
     message: str
-    data: Optional[Any] = None
+    data: Any | None = None
