@@ -1,4 +1,4 @@
-from typing import List, Union
+from typing import List, Union, Optional
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/competewell"
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
+    # Gemini Configurations
+    GEMINI_API_KEY: Optional[str] = None
+
 
 settings = Settings()
+
 

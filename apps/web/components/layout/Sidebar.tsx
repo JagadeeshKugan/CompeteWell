@@ -38,7 +38,7 @@ export default function Sidebar() {
     if (pathname.startsWith("/analysis")) return "analysis";
     if (pathname.startsWith("/competitors")) return "competitors";
     if (pathname.startsWith("/reports")) return "reports";
-    if (pathname.startsWith("/ai")) return "ai-assistant";
+    if (pathname.startsWith("/business-advisor")) return "business-advisor";
     if (pathname.startsWith("/settings")) return "settings";
     return "dashboard";
   }, [pathname]);
@@ -53,7 +53,7 @@ export default function Sidebar() {
   ];
 
   const toolsItems = [
-    { id: "ai-assistant", label: "AI Assistant", icon: Sparkles, route: "/ai" },
+    { id: "business-advisor", label: "Business Advisor", icon: Sparkles, route: "/business-advisor" },
     { id: "settings", label: "Settings", icon: Settings, route: "/settings" },
   ];
 

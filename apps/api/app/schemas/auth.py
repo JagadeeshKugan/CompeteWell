@@ -36,8 +36,20 @@ class ResetPasswordRequest(BaseModel):
 
 
 class OnboardRequest(BaseModel):
+    organization_name: str = Field(..., min_length=1, max_length=200)
     business_name: str = Field(..., min_length=1, max_length=200)
+    category: str = Field(..., min_length=1, max_length=200)
+    zip_code: str = Field(..., min_length=1, max_length=20)
+    country: str = Field(..., min_length=1, max_length=100)
     website_url: str | None = Field(None, max_length=500)
+    phone: str | None = Field(None, max_length=50)
+    address: str = Field(..., min_length=1, max_length=500)
+    is_verified: bool = Field(False)
+    rating: float | None = Field(None)
+    review_count: int = Field(0)
+    radius: str = Field(..., min_length=1, max_length=50)
+    competitor_count: int = Field(10)
+    depth: str = Field(..., min_length=1, max_length=50)
 
 
 class TokenResponse(BaseModel):

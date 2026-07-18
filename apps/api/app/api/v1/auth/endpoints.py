@@ -220,5 +220,5 @@ def onboard(
     Completes onboarding by registering the user's first business name.
     """
     auth_service = AuthService(db)
-    updated_user = auth_service.onboard(user=current_user, business_name=payload.business_name)
+    updated_user = auth_service.onboard(user=current_user, payload=payload)
     return updated_user

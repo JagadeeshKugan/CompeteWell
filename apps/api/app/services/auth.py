@@ -16,6 +16,9 @@ from app.repositories.email_verification import EmailVerificationRepository
 from app.repositories.user import UserRepository
 from app.repositories.user_session import UserSessionRepository
 from app.models.user import User
+from app.models.organization import Organization
+from app.models.business import Business
+from app.schemas.auth import OnboardRequest
 
 logger = logging.getLogger(__name__)
 
@@ -312,11 +315,48 @@ class AuthService:
         # Clear all user sessions to force login again
         self.session_repo.delete_all_for_user(user.id)
 
-    def onboard(self, user: User, business_name: str) -> User:
+    def onboard(self, user: User, payload: OnboardRequest) -> User:
         if user.onboarding_completed:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Onboarding has already been completed.",
             )
-        # Update user status to complete
-        return self.user_repo.update_onboarding_status(user, onboarding_completed=True)
+
+        # 1. Create Organization
+        org = Organization(
+            name=payload.organization_name,
+            user_id=user.id
+        )
+        self.db.add(org)
+        self.db.commit()
+        self.db.refresh(org)
+
+        # 2. Create Business
+        biz = Business(
+            organization_id=org.id,
+            name=payload.business_name,
+            category=payload.category,
+            zip_code=payload.zip_code,
+            country=payload.country,
+            website=payload.website_url,
+            phone=payload.phone,
+            address=payload.address,
+            is_verified=payload.is_verified,
+            rating=payload.rating,
+            review_count=payload.review_count,
+            radius=payload.radius,
+            competitor_count=payload.competitor_count,
+            depth=payload.depth
+        )
+        self.db.add(biz)
+        self.db.commit()
+        self.db.refresh(biz)
+
+        # 3. Update user onboarding status
+        user.onboarding_completed = True
+        user.updated_at = datetime.now(timezone.utc)
+        self.db.add(user)
+        self.db.commit()
+        self.db.refresh(user)
+
+        return user

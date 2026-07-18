@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { 
   Building2, 
   Globe, 
@@ -18,27 +19,24 @@ import {
   ArrowRight,
   LogOut,
   Building,
-  FileText
+  FileText,
+  Star,
+  CheckCircle,
+  ShieldCheck,
+  Compass,
+  Zap
 } from "lucide-react";
 
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
-// Custom type definitions for the wizard
-interface Step {
-  id: number;
-  title: string;
-  subtitle: string;
-}
-
-const STEPS: Step[] = [
-  { id: 1, title: "Business Info", subtitle: "Basic details" },
-  { id: 2, title: "Location", subtitle: "Verify presence" },
-  { id: 3, title: "Preferences", subtitle: "Analysis setup" },
-  { id: 4, title: "Confirm", subtitle: "Review & launch" },
-];
+import { 
+  OnboardingProvider, 
+  useOnboarding, 
+  GoogleBusinessResult 
+} from "@/store/onboarding-context";
+import { AuthService } from "@/services/auth.service";
 
 const CATEGORIES = [
   "Cafe / Coffee Shop",
@@ -69,86 +67,147 @@ const COUNTRIES = [
   { code: "IN", name: "India" }
 ];
 
-interface GoogleBusinessResult {
-  id: string;
-  name: string;
-  address: string;
-  phone: string;
-  website: string;
-  verified: boolean;
-  description: string;
+const MOCK_BUSINESSES: GoogleBusinessResult[] = [
+  {
+    id: "mock-biz-1",
+    name: "Bluebird Coffee House",
+    category: "Cafe / Coffee Shop",
+    rating: 4.8,
+    reviewCount: 142,
+    address: "123 Main St, San Francisco, CA 94103",
+    verified: true,
+    website: "www.bluebirdcoffee.com",
+    phone: "+1 (415) 555-0142",
+  },
+  {
+    id: "mock-biz-2",
+    name: "The Daily Grind Cafe",
+    category: "Cafe / Coffee Shop",
+    rating: 4.5,
+    reviewCount: 98,
+    address: "456 Valencia St, San Francisco, CA 94110",
+    verified: true,
+    website: "www.dailygrindcafe.com",
+    phone: "+1 (415) 555-9876",
+  },
+  {
+    id: "mock-biz-3",
+    name: "Mission Delights Restaurant",
+    category: "Restaurant / Diner",
+    rating: 4.2,
+    reviewCount: 64,
+    address: "789 Oak St, San Francisco, CA 94102",
+    verified: false,
+    website: "www.missiondelights.com",
+    phone: "+1 (415) 555-3456",
+  },
+  {
+    id: "mock-biz-4",
+    name: "Golden Gate Fitness",
+    category: "Fitness Center / Gym",
+    rating: 4.9,
+    reviewCount: 215,
+    address: "101 Pine St, San Francisco, CA 94111",
+    verified: true,
+    website: "www.goldengatefitness.com",
+    phone: "+1 (415) 555-1212",
+  },
+  {
+    id: "mock-biz-5",
+    name: "Peak Health Dental",
+    category: "Dentist / Dental Practice",
+    rating: 4.7,
+    reviewCount: 83,
+    address: "202 Bush St, San Francisco, CA 94104",
+    verified: true,
+    website: "www.peakhealthdental.com",
+    phone: "+1 (415) 555-4321",
+  },
+];
+
+const STEPS = [
+  { id: 1, label: "Welcome" },
+  { id: 2, label: "Organization" },
+  { id: 3, label: "Business" },
+  { id: 4, label: "Lookup" },
+  { id: 5, label: "Verify" },
+  { id: 6, label: "Preferences" },
+  { id: 7, label: "Complete" },
+];
+
+function BusinessCardSkeleton() {
+  return (
+    <div className="border border-slate-100 rounded-2xl p-5 bg-white shadow-sm flex items-start gap-4 animate-pulse">
+      <div className="h-10 w-10 rounded-xl bg-slate-100 shrink-0" />
+      <div className="flex-1 space-y-3 min-w-0">
+        <div className="flex items-center justify-between">
+          <div className="h-4 w-1/3 bg-slate-100 rounded" />
+          <div className="h-4 w-16 bg-slate-100 rounded" />
+        </div>
+        <div className="h-3.5 w-1/4 bg-slate-100 rounded" />
+        <div className="space-y-2">
+          <div className="h-3 w-3/4 bg-slate-100 rounded" />
+          <div className="h-3 w-1/2 bg-slate-100 rounded" />
+        </div>
+      </div>
+    </div>
+  );
 }
 
-export default function OnboardingPage() {
-  const { onboard, logout, user } = useAuth();
-  
-  // Wizard Navigation
-  const [currentStep, setCurrentStep] = useState<number>(1);
+function OnboardingWizard() {
+  const { logout, user, checkMe } = useAuth();
+  const router = useRouter();
+
+  const {
+    state,
+    setStep,
+    updateOrganization,
+    updateBusinessInfo,
+    updateSelectedBusiness,
+    updateAnalysisPreferences,
+    completeStep,
+  } = useOnboarding();
+
+  const currentStep = state.currentStep;
+  const maxCompletedStep = state.maxCompletedStep;
+
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  
-  // Step 1 State: Business Info
-  const [businessName, setBusinessName] = useState<string>("");
-  const [category, setCategory] = useState<string>("");
-  const [country, setCountry] = useState<string>("US");
-  const [zipCode, setZipCode] = useState<string>("");
-  const [city, setCity] = useState<string>("");
-  const [step1Errors, setStep1Errors] = useState<{ businessName?: string; category?: string; zipCode?: string }>({});
 
-  // Category Searchable Select State
+  // Step 2 local errors
+  const [orgErrors, setOrgErrors] = useState<{ name?: string }>({});
+
+  // Step 3 local errors
+  const [bizInfoErrors, setBizInfoErrors] = useState<{
+    name?: string;
+    category?: string;
+    zipCode?: string;
+  }>({});
+
+  // Step 3 Category Searchable Select State
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState<boolean>(false);
-  const [categorySearchQuery, setCategorySearchQuery] = useState<string>("");
+  const [categorySearchQuery, setCategorySearchQuery] = useState<string>(state.businessInfo.category);
   const categoryDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Step 2 State: Location & Google Business Search
-  const [googleSearchQuery, setGoogleSearchQuery] = useState<string>("");
-  const [isSearchingGoogle, setIsSearchingGoogle] = useState<boolean>(false);
-  const [googleSearchResults, setGoogleSearchResults] = useState<GoogleBusinessResult[]>([]);
-  const [hasSearchedGoogle, setHasSearchedGoogle] = useState<boolean>(false);
-  const [selectedGoogleId, setSelectedGoogleId] = useState<string | null>(null);
-  const [isVerified, setIsVerified] = useState<boolean>(false);
+  // Step 4 state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [isLoadingResults, setIsLoadingResults] = useState(false);
+  const [showDefaults, setShowDefaults] = useState(false);
 
-  const [address, setAddress] = useState<string>("");
-  const [phone, setPhone] = useState<string>("");
-  const [website, setWebsite] = useState<string>("");
-  const [description, setDescription] = useState<string>("");
-  const [step2Errors, setStep2Errors] = useState<{ address?: string; phone?: string }>({});
+  // Step 5 verification states
+  const [editName, setEditName] = useState("");
+  const [editAddress, setEditAddress] = useState("");
+  const [editWebsite, setEditWebsite] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editCategory, setEditCategory] = useState("");
+  const [verifyErrors, setVerifyErrors] = useState<{
+    name?: string;
+    address?: string;
+    category?: string;
+  }>({});
 
-  // Step 3 State: Preferences (Pre-populated matching design screenshots)
-  const [radius, setRadius] = useState<string>("5 miles");
-  const [competitorCount, setCompetitorCount] = useState<string>("10");
-  const [focusAreas, setFocusAreas] = useState<string[]>(["Reviews", "Competitors"]);
-
-  // --- Helpers & Handlers ---
-
-  // Auto-fill City from ZIP
-  useEffect(() => {
-    if (zipCode.trim().length >= 3) {
-      // Simulate API lookup
-      const mockZipToCity: Record<string, string> = {
-        "94103": "San Francisco",
-        "10001": "New York",
-        "90210": "Beverly Hills",
-        "98101": "Seattle",
-        "60601": "Chicago",
-        "30301": "Atlanta",
-        "02101": "Boston",
-        "90001": "Los Angeles"
-      };
-      
-      const foundCity = mockZipToCity[zipCode.trim()];
-      if (foundCity) {
-        setCity(foundCity);
-      } else {
-        // Fallback placeholder lookup logic for simulation
-        setCity("San Francisco"); 
-      }
-    } else {
-      setCity("");
-    }
-  }, [zipCode]);
-
-  // Click outside listener for category select dropdown
+  // Category selection click listener
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (categoryDropdownRef.current && !categoryDropdownRef.current.contains(event.target as Node)) {
@@ -161,189 +220,196 @@ export default function OnboardingPage() {
 
   // Update Google search query when business name changes, if user hasn't typed in search yet
   useEffect(() => {
-    if (!googleSearchQuery && businessName) {
-      setGoogleSearchQuery(businessName);
+    if (!searchQuery && state.businessInfo.name) {
+      setSearchQuery(state.businessInfo.name);
+      setDebouncedQuery(state.businessInfo.name);
     }
-  }, [businessName, googleSearchQuery]);
+  }, [state.businessInfo.name, searchQuery]);
 
-  // Handle category selection
+  // Debounce search query to simulate network delay in Step 4
+  useEffect(() => {
+    if (currentStep === 4 && searchQuery) {
+      setIsLoadingResults(true);
+      const timer = setTimeout(() => {
+        setDebouncedQuery(searchQuery);
+        setIsLoadingResults(false);
+      }, 700);
+      return () => clearTimeout(timer);
+    }
+  }, [searchQuery, currentStep]);
+
+  const handleSearchChange = (val: string) => {
+    setSearchQuery(val);
+    setIsLoadingResults(true);
+  };
+
+  // Sync Verification form fields when Step 5 is activated
+  useEffect(() => {
+    if (currentStep === 5) {
+      if (state.selectedBusiness) {
+        setEditName(state.selectedBusiness.name);
+        setEditAddress(state.selectedBusiness.address);
+        setEditWebsite(state.selectedBusiness.website || "");
+        setEditPhone(state.selectedBusiness.phone || "");
+        setEditCategory(state.selectedBusiness.category);
+      } else {
+        setEditName(state.businessInfo.name);
+        setEditAddress("");
+        setEditWebsite(state.businessInfo.website || "");
+        setEditPhone(state.businessInfo.phone || "");
+        setEditCategory(state.businessInfo.category);
+      }
+      setVerifyErrors({});
+    }
+  }, [currentStep, state.selectedBusiness, state.businessInfo]);
+
+  // Handle category select
   const handleSelectCategory = (cat: string) => {
-    setCategory(cat);
+    updateBusinessInfo({ category: cat });
     setIsCategoryDropdownOpen(false);
     setCategorySearchQuery("");
-    if (step1Errors.category) {
-      setStep1Errors(prev => ({ ...prev, category: undefined }));
+    if (bizInfoErrors.category) {
+      setBizInfoErrors(prev => ({ ...prev, category: undefined }));
     }
   };
 
-  // Filtered categories
   const filteredCategories = CATEGORIES.filter(cat =>
     cat.toLowerCase().includes(categorySearchQuery.toLowerCase())
   );
 
-  // Simulate Google Business Search
-  const handleSearchGoogleBusiness = () => {
-    if (!googleSearchQuery.trim()) return;
-    
-    setIsSearchingGoogle(true);
-    // Simulate short premium network delay
-    setTimeout(() => {
-      const bizName = googleSearchQuery.trim();
-      const mockResults: GoogleBusinessResult[] = [
-        {
-          id: "biz-1",
-          name: `${bizName} - Downtown`,
-          address: "123 Main St, San Francisco, CA 94103",
-          phone: "+1 (415) 555-0142",
-          website: `www.${bizName.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`,
-          verified: true,
-          description: "Cozy neighborhood establishment serving the local community with premium quality and friendly service since 2018."
-        },
-        {
-          id: "biz-2",
-          name: `${bizName} - Mission District`,
-          address: "456 Valencia St, San Francisco, CA 94110",
-          phone: "+1 (415) 555-9876",
-          website: `www.${bizName.toLowerCase().replace(/[^a-z0-9]/g, "")}mission.com`,
-          verified: true,
-          description: "Modern storefront featuring specialty items, premium seating, and dedicated service."
-        },
-        {
-          id: "biz-3",
-          name: bizName.toLowerCase().includes("cafe") || bizName.toLowerCase().includes("coffee") 
-            ? `${bizName}` 
-            : `${bizName} Cafe`,
-          address: "789 Oak St, San Francisco, CA 94102",
-          phone: "+1 (415) 555-3456",
-          website: `www.${bizName.toLowerCase().replace(/[^a-z0-9]/g, "")}cafesf.com`,
-          verified: false,
-          description: "Local dining option serving great items and fresh drinks in a relaxed atmosphere."
-        }
-      ];
-      
-      setGoogleSearchResults(mockResults);
-      setIsSearchingGoogle(false);
-      setHasSearchedGoogle(true);
-    }, 800);
-  };
+  // Business lookup filtering
+  const filteredBusinesses = MOCK_BUSINESSES.filter(biz =>
+    biz.name.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
+    biz.category.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
+    biz.address.toLowerCase().includes(debouncedQuery.toLowerCase())
+  );
 
-  // Handle selecting a Google search result
-  const handleSelectGoogleResult = (result: GoogleBusinessResult) => {
-    setSelectedGoogleId(result.id);
-    setIsVerified(result.verified);
-    
-    // Auto-fill form fields
-    setAddress(result.address);
-    setPhone(result.phone);
-    setWebsite(result.website);
-    setDescription(result.description);
-    
-    // Clear validation errors
-    setStep2Errors({});
-  };
-
-  // Toggle multi-select focus areas
-  const handleToggleFocusArea = (area: string) => {
-    if (focusAreas.includes(area)) {
-      setFocusAreas(prev => prev.filter(a => a !== area));
-    } else {
-      setFocusAreas(prev => [...prev, area]);
-    }
-  };
-
-  // Validation routines
-  const validateStep1 = (): boolean => {
-    const errors: { businessName?: string; category?: string; zipCode?: string } = {};
-    if (!businessName.trim()) {
-      errors.businessName = "Business name is required";
-    }
-    if (!category) {
-      errors.category = "Please select a business category";
-    }
-    if (!zipCode.trim()) {
-      errors.zipCode = "ZIP / Postal Code is required";
-    }
-    setStep1Errors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  const validateStep2 = (): boolean => {
-    const errors: { address?: string; phone?: string } = {};
-    if (!address.trim()) {
-      errors.address = "Business address is required";
-    }
-    if (!phone.trim()) {
-      errors.phone = "Phone number is required";
-    }
-    setStep2Errors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  // Navigation logic
+  // Navigation Logic
   const handleContinue = () => {
     setSubmitError(null);
+
     if (currentStep === 1) {
-      if (validateStep1()) {
-        setCurrentStep(2);
-      }
+      completeStep(1);
     } else if (currentStep === 2) {
-      if (validateStep2()) {
-        setCurrentStep(3);
+      if (!state.organization.name.trim()) {
+        setOrgErrors({ name: "Organization Name is required" });
+        return;
       }
+      setOrgErrors({});
+      completeStep(2);
     } else if (currentStep === 3) {
-      setCurrentStep(4);
+      const errors: { name?: string; category?: string; zipCode?: string } = {};
+      if (!state.businessInfo.name.trim()) {
+        errors.name = "Business Name is required";
+      }
+      if (!state.businessInfo.category) {
+        errors.category = "Business Category is required";
+      }
+      if (!state.businessInfo.zipCode.trim()) {
+        errors.zipCode = "ZIP / Postal Code is required";
+      }
+      if (Object.keys(errors).length > 0) {
+        setBizInfoErrors(errors);
+        return;
+      }
+      setBizInfoErrors({});
+      completeStep(3);
+    } else if (currentStep === 4) {
+      if (!state.selectedBusiness) {
+        setSubmitError("Please select a business listing to continue.");
+        return;
+      }
+      completeStep(4);
+    } else if (currentStep === 5) {
+      const errors: { name?: string; address?: string; category?: string } = {};
+      if (!editName.trim()) {
+        errors.name = "Business Name is required";
+      }
+      if (!editAddress.trim()) {
+        errors.address = "Address is required";
+      }
+      if (!editCategory.trim()) {
+        errors.category = "Category is required";
+      }
+      if (Object.keys(errors).length > 0) {
+        setVerifyErrors(errors);
+        return;
+      }
+      
+      // Save changes to selectedBusiness
+      updateSelectedBusiness({
+        id: state.selectedBusiness?.id || "manual-entry",
+        name: editName,
+        address: editAddress,
+        website: editWebsite,
+        phone: editPhone,
+        category: editCategory,
+        rating: state.selectedBusiness?.rating || 5.0,
+        reviewCount: state.selectedBusiness?.reviewCount || 0,
+        verified: state.selectedBusiness?.verified || false
+      });
+      
+      setVerifyErrors({});
+      completeStep(5);
     }
   };
 
   const handleBack = () => {
     setSubmitError(null);
     if (currentStep > 1) {
-      setCurrentStep(prev => prev - 1);
+      setStep(currentStep - 1);
     }
   };
 
-  // Final submit triggering onboard logic
-  const handleStartAnalysis = async () => {
+  const handleFinishSetup = async () => {
     setSubmitError(null);
     setIsSubmitting(true);
+
     try {
-      // Plug and play with backend structure. 
-      // Additional preferences are defined here as comments showing how easily this page is scaled 
-      // when developers expand their onboarding api endpoint.
-      /*
-      const fullPayload = {
-        business_name: businessName,
-        website_url: website || undefined,
-        // Scalable variables ready to plug-in:
-        category,
-        country,
-        zip_code: zipCode,
-        city,
-        address,
-        phone,
-        description,
-        is_verified: isVerified,
-        preferences: {
-          radius: radius,
-          competitor_count: parseInt(competitorCount, 10),
-          focus_areas: focusAreas
-        }
-      };
-      */
-      
-      await onboard({
-        business_name: businessName,
-        website_url: website || undefined,
+      const targetBusiness = state.selectedBusiness!;
+
+      // Sync and mark completed in backend
+      await AuthService.onboard({
+        organization_name: state.organization.name,
+        business_name: targetBusiness.name,
+        category: targetBusiness.category,
+        zip_code: state.businessInfo.zipCode,
+        country: state.businessInfo.country,
+        website_url: targetBusiness.website || undefined,
+        phone: targetBusiness.phone || undefined,
+        address: targetBusiness.address,
+        is_verified: targetBusiness.verified,
+        rating: targetBusiness.rating,
+        review_count: targetBusiness.reviewCount,
+        radius: state.analysisPreferences.radius,
+        competitor_count: parseInt(state.analysisPreferences.competitorCount, 10),
+        depth: state.analysisPreferences.depth,
       });
+
+      // Advance to Success Page (Step 7)
+      completeStep(6);
     } catch (err: unknown) {
       const error = err as Error;
-      setSubmitError(error.message || "Failed to complete onboarding. Please try again.");
+      setSubmitError(error.message || "Failed to finalize onboarding setup. Please check your credentials.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleGoToDashboard = async () => {
+    setIsSubmitting(true);
+    try {
+      // Re-fetch user to make sure auth state reflects onboarding completion
+      await checkMe();
+    } catch {
+      router.push("/dashboard");
+    } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#f8fafd] text-slate-800 selection:bg-blue-100 selection:text-blue-800">
+    <div className="min-h-screen flex flex-col bg-[#f8fafd] text-slate-800 selection:bg-blue-100 selection:text-blue-800 pb-24 md:pb-6">
       
       {/* Header bar */}
       <header className="px-6 py-4 flex items-center justify-between bg-white border-b border-slate-100 shadow-sm z-30">
@@ -385,35 +451,43 @@ export default function OnboardingPage() {
       </header>
 
       {/* Main Page Container */}
-      <main className="flex-1 flex flex-col items-center py-10 px-4 sm:px-6">
-        <div className="w-full max-w-[860px] space-y-8 animate-in fade-in duration-300">
+      <main className="flex-1 flex flex-col items-center py-8 px-4 sm:px-6">
+        <div className="w-full max-w-[900px] space-y-8 animate-in fade-in duration-300">
           
           {/* Header Title Section */}
           <div className="text-left space-y-1">
-            <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Add Business</h1>
-            <p className="text-sm text-slate-500">
-              {"Let's gather a few details before we analyze your market."}
+            <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">Setup CompeteWell</h1>
+            <p className="text-xs text-slate-500">
+              Configure your workspace, lookup your storefront, and specify tracking parameters.
             </p>
           </div>
 
           {/* Step Indicator */}
-          <div className="bg-white border border-slate-100/80 rounded-2xl p-5 md:p-6 shadow-sm overflow-x-auto">
-            <div className="flex items-center justify-between min-w-[640px] px-2">
+          <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm overflow-x-auto scrollbar-hide">
+            <div className="flex items-center justify-between w-full min-w-[760px] px-2 py-2">
               {STEPS.map((step, idx) => {
                 const isActive = step.id === currentStep;
                 const isCompleted = step.id < currentStep;
+                const isNavigatable = step.id <= maxCompletedStep + 1;
                 
                 return (
                   <React.Fragment key={step.id}>
                     {/* Step item */}
-                    <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      disabled={!isNavigatable || currentStep === 7}
+                      onClick={() => setStep(step.id)}
+                      className={`flex flex-col items-center gap-1 focus:outline-none transition-all group ${
+                        isNavigatable && currentStep < 7 ? "cursor-pointer" : "cursor-not-allowed"
+                      }`}
+                    >
                       <div 
-                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-xs font-bold transition-all duration-300 ${
+                        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-bold transition-all duration-300 ${
                           isCompleted
                             ? "bg-blue-600 border-blue-600 text-white shadow-sm shadow-blue-500/20"
                             : isActive
                             ? "border-blue-600 text-blue-600 bg-white ring-4 ring-blue-500/10 scale-105"
-                            : "border-slate-200 text-slate-400 bg-white"
+                            : "border-slate-200 text-slate-400 bg-white group-hover:border-slate-300"
                         }`}
                       >
                         {isCompleted ? (
@@ -422,21 +496,16 @@ export default function OnboardingPage() {
                           step.id
                         )}
                       </div>
-                      <div className="text-left">
-                        <p className={`text-xs font-bold tracking-wide transition-colors ${
-                          isActive || isCompleted ? "text-slate-800" : "text-slate-400"
-                        }`}>
-                          {step.title}
-                        </p>
-                        <p className="text-[10px] text-slate-400 font-medium">
-                          {step.subtitle}
-                        </p>
-                      </div>
-                    </div>
+                      <span className={`text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                        isActive || isCompleted ? "text-slate-800" : "text-slate-400 group-hover:text-slate-500"
+                      }`}>
+                        {step.label}
+                      </span>
+                    </button>
 
                     {/* Connecting line */}
                     {idx < STEPS.length - 1 && (
-                      <div className="flex-1 mx-4 h-0.5 min-w-[20px] bg-slate-100 rounded-full overflow-hidden">
+                      <div className="flex-1 mx-2 h-0.5 min-w-[12px] bg-slate-100 rounded-full overflow-hidden">
                         <div 
                           className="h-full bg-blue-500 transition-all duration-500 ease-out" 
                           style={{ width: isCompleted ? "100%" : "0%" }}
@@ -454,20 +523,87 @@ export default function OnboardingPage() {
             <div className="flex items-start gap-3 p-4 rounded-2xl bg-rose-50 border border-rose-100 text-rose-800 text-xs font-medium animate-in fade-in duration-200">
               <AlertCircle className="h-5 w-5 shrink-0 text-rose-500 mt-0.5" />
               <div>
-                <p className="font-bold mb-0.5">Onboarding Error</p>
+                <p className="font-bold mb-0.5">Setup Error</p>
                 <p className="text-rose-600">{submitError}</p>
               </div>
             </div>
           )}
 
           {/* ========================================================
-              STEP 1: Business Information Card
+              STEP 1: Welcome Page
               ======================================================== */}
           {currentStep === 1 && (
-            <div className="bg-white border border-slate-100 rounded-2xl p-6 md:p-8 shadow-sm space-y-6 animate-in fade-in duration-200">
+            <div className="bg-white border border-slate-100 rounded-3xl p-6 md:p-10 shadow-sm flex flex-col items-center text-center space-y-6 animate-in fade-in zoom-in-95 duration-200">
+              <div className="h-16 w-16 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600 shadow-inner">
+                <Building2 className="h-8 w-8" />
+              </div>
+              <div className="space-y-2 max-w-md">
+                <h2 className="text-2xl font-bold tracking-tight text-slate-900">Welcome to CompeteWell</h2>
+                <p className="text-sm text-slate-500 leading-relaxed">
+                  Let&apos;s set up your organization and first business location.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 py-2 px-4 bg-slate-50 rounded-full border border-slate-100/50 text-[11px] font-semibold text-slate-500">
+                <Clock className="h-3.5 w-3.5 text-blue-600" />
+                <span>Estimated setup time: About 2 minutes</span>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================
+              STEP 2: Organization Name
+              ======================================================== */}
+          {currentStep === 2 && (
+            <div className="bg-white border border-slate-100 rounded-3xl p-6 md:p-8 shadow-sm space-y-6 animate-in fade-in zoom-in-95 duration-200">
               <div className="flex items-center gap-3 pb-3 border-b border-slate-50">
                 <div className="h-10 w-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
-                  <Building2 className="h-5 w-5" />
+                  <Building className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-800">Organization Setup</h2>
+                  <p className="text-[11px] text-slate-400">Establish your organizational boundary.</p>
+                </div>
+              </div>
+
+              <div className="space-y-4 max-w-xl">
+                <div className="space-y-1.5">
+                  <Label htmlFor="org_name" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                    Organization Name
+                  </Label>
+                  <Input
+                    id="org_name"
+                    type="text"
+                    value={state.organization.name}
+                    onChange={(e) => {
+                      updateOrganization({ name: e.target.value });
+                      if (orgErrors.name) setOrgErrors({});
+                    }}
+                    placeholder="e.g. Acme Corp / Bluebird Group"
+                    className={orgErrors.name ? "border-rose-300 focus:border-rose-500 focus:ring-rose-500/10" : ""}
+                  />
+                  {orgErrors.name && (
+                    <p className="text-xs text-rose-600 font-semibold flex items-center gap-1.5 animate-in fade-in duration-100">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                      {orgErrors.name}
+                    </p>
+                  )}
+                  <p className="text-[11px] text-slate-400 leading-normal mt-1">
+                    This represents your company and can contain multiple business locations.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================
+              STEP 3: Business Information Form
+              ======================================================== */}
+          {currentStep === 3 && (
+            <div className="bg-white border border-slate-100 rounded-3xl p-6 md:p-8 shadow-sm space-y-6 animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-center gap-3 pb-3 border-b border-slate-50">
+                <div className="h-10 w-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
+                  <FileText className="h-5 w-5" />
                 </div>
                 <div>
                   <h2 className="text-base font-bold text-slate-800">Business Information</h2>
@@ -484,25 +620,25 @@ export default function OnboardingPage() {
                   <Input
                     id="business_name"
                     type="text"
-                    value={businessName}
+                    value={state.businessInfo.name}
                     onChange={(e) => {
-                      setBusinessName(e.target.value);
-                      if (step1Errors.businessName) {
-                        setStep1Errors(prev => ({ ...prev, businessName: undefined }));
+                      updateBusinessInfo({ name: e.target.value });
+                      if (bizInfoErrors.name) {
+                        setBizInfoErrors(prev => ({ ...prev, name: undefined }));
                       }
                     }}
                     placeholder="e.g. Bluebird Coffee House"
-                    className={step1Errors.businessName ? "border-rose-300 focus:border-rose-500 focus:ring-rose-500/10" : ""}
+                    className={bizInfoErrors.name ? "border-rose-300 focus:border-rose-500 focus:ring-rose-500/10" : ""}
                   />
-                  {step1Errors.businessName && (
+                  {bizInfoErrors.name && (
                     <p className="text-xs text-rose-600 font-semibold flex items-center gap-1.5 animate-in fade-in duration-100">
                       <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                      {step1Errors.businessName}
+                      {bizInfoErrors.name}
                     </p>
                   )}
                 </div>
 
-                {/* Business Category (Searchable Select) */}
+                {/* Business Category Dropdown */}
                 <div className="space-y-1.5">
                   <Label className="text-xs font-bold text-slate-600 uppercase tracking-wider">
                     Business Category
@@ -512,20 +648,19 @@ export default function OnboardingPage() {
                       type="button"
                       onClick={() => setIsCategoryDropdownOpen(prev => !prev)}
                       className={`flex h-11 w-full items-center justify-between rounded-xl border bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none transition-all duration-150 cursor-pointer ${
-                        step1Errors.category 
+                        bizInfoErrors.category 
                           ? "border-rose-300 ring-rose-500/10" 
                           : "border-slate-200 hover:border-slate-300 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
                       }`}
                     >
-                      <span className={category ? "text-slate-800" : "text-slate-400"}>
-                        {category || "Search categories..."}
+                      <span className={state.businessInfo.category ? "text-slate-800" : "text-slate-400"}>
+                        {state.businessInfo.category || "Search categories..."}
                       </span>
                       <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${isCategoryDropdownOpen ? "rotate-180" : ""}`} />
                     </button>
 
                     {isCategoryDropdownOpen && (
                       <div className="absolute top-[calc(100%+4px)] left-0 w-full bg-white border border-slate-100 rounded-xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
-                        {/* Search Input */}
                         <div className="p-2 border-b border-slate-50 bg-slate-50/50 flex items-center gap-2">
                           <Search className="h-4 w-4 text-slate-400 shrink-0 ml-1.5" />
                           <input
@@ -537,8 +672,7 @@ export default function OnboardingPage() {
                           />
                         </div>
 
-                        {/* List Items */}
-                        <div className="max-h-[220px] overflow-y-auto py-1">
+                        <div className="max-h-[200px] overflow-y-auto py-1">
                           {filteredCategories.length > 0 ? (
                             filteredCategories.map((cat) => (
                               <button
@@ -546,11 +680,11 @@ export default function OnboardingPage() {
                                 type="button"
                                 onClick={() => handleSelectCategory(cat)}
                                 className={`w-full flex items-center justify-between px-3 py-2 text-xs text-left hover:bg-slate-50 transition-colors cursor-pointer ${
-                                  category === cat ? "bg-blue-50/50 text-blue-700 font-bold" : "text-slate-600"
+                                  state.businessInfo.category === cat ? "bg-blue-50/50 text-blue-700 font-bold" : "text-slate-600"
                                 }`}
                               >
                                 <span>{cat}</span>
-                                {category === cat && <Check className="h-3.5 w-3.5 text-blue-600" />}
+                                {state.businessInfo.category === cat && <Check className="h-3.5 w-3.5 text-blue-600" />}
                               </button>
                             ))
                           ) : (
@@ -560,15 +694,15 @@ export default function OnboardingPage() {
                       </div>
                     )}
                   </div>
-                  {step1Errors.category && (
+                  {bizInfoErrors.category && (
                     <p className="text-xs text-rose-600 font-semibold flex items-center gap-1.5 animate-in fade-in duration-100">
                       <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                      {step1Errors.category}
+                      {bizInfoErrors.category}
                     </p>
                   )}
                 </div>
 
-                {/* Country and ZIP / Postal Code Grid */}
+                {/* Country & ZIP Code Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <Label htmlFor="country" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
@@ -577,8 +711,8 @@ export default function OnboardingPage() {
                     <div className="relative">
                       <select
                         id="country"
-                        value={country}
-                        onChange={(e) => setCountry(e.target.value)}
+                        value={state.businessInfo.country}
+                        onChange={(e) => updateBusinessInfo({ country: e.target.value })}
                         className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all duration-150 appearance-none cursor-pointer"
                       >
                         {COUNTRIES.map((c) => (
@@ -598,197 +732,27 @@ export default function OnboardingPage() {
                     <Input
                       id="zip_code"
                       type="text"
-                      value={zipCode}
+                      value={state.businessInfo.zipCode}
                       onChange={(e) => {
-                        setZipCode(e.target.value);
-                        if (step1Errors.zipCode) {
-                          setStep1Errors(prev => ({ ...prev, zipCode: undefined }));
+                        updateBusinessInfo({ zipCode: e.target.value });
+                        if (bizInfoErrors.zipCode) {
+                          setBizInfoErrors(prev => ({ ...prev, zipCode: undefined }));
                         }
                       }}
-                      placeholder="94103"
-                      className={step1Errors.zipCode ? "border-rose-300 focus:border-rose-500 focus:ring-rose-500/10" : ""}
+                      placeholder="e.g. 94103"
+                      className={bizInfoErrors.zipCode ? "border-rose-300 focus:border-rose-500 focus:ring-rose-500/10" : ""}
                     />
-                    {step1Errors.zipCode && (
+                    {bizInfoErrors.zipCode && (
                       <p className="text-xs text-rose-600 font-semibold flex items-center gap-1.5 animate-in fade-in duration-100">
                         <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                        {step1Errors.zipCode}
+                        {bizInfoErrors.zipCode}
                       </p>
                     )}
                   </div>
                 </div>
 
-                {/* City (Auto-filled) */}
-                <div className="space-y-1.5">
-                  <Label htmlFor="city" className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                    City
-                  </Label>
-                  <Input
-                    id="city"
-                    type="text"
-                    value={city}
-                    disabled
-                    placeholder="Auto-filled from ZIP (e.g. San Francisco)"
-                    className="bg-slate-50 border-slate-100 text-slate-500 cursor-not-allowed select-none placeholder:text-slate-400"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ========================================================
-              STEP 2: Business Location Card
-              ======================================================== */}
-          {currentStep === 2 && (
-            <div className="bg-white border border-slate-100 rounded-2xl p-6 md:p-8 shadow-sm space-y-6 animate-in fade-in duration-200">
-              <div className="flex items-center gap-3 pb-3 border-b border-slate-50">
-                <div className="h-10 w-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
-                  <MapPin className="h-5 w-5" />
-                </div>
-                <div>
-                  <h2 className="text-base font-bold text-slate-800">Business Location</h2>
-                  <p className="text-[11px] text-slate-400">Verify your address and online details using Google Search.</p>
-                </div>
-              </div>
-
-              {/* Google Business Search Container */}
-              <div className="border border-dashed border-slate-200 rounded-xl p-4 md:p-5 bg-slate-50/40 space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-700">Find your business on Google</h3>
-                    <p className="text-[10px] text-slate-400">{"We'll pre-fill your address and verified details."}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Input
-                      type="text"
-                      value={googleSearchQuery}
-                      onChange={(e) => setGoogleSearchQuery(e.target.value)}
-                      placeholder="e.g. Bluebird Coffee House"
-                      className="h-9 text-xs max-w-[200px] sm:max-w-[240px] bg-white border-slate-200"
-                    />
-                    <Button 
-                      type="button" 
-                      onClick={handleSearchGoogleBusiness} 
-                      disabled={isSearchingGoogle || !googleSearchQuery.trim()}
-                      className="h-9 px-3 text-xs flex items-center gap-1.5"
-                    >
-                      {isSearchingGoogle ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Search className="h-3 w-3" />
-                      )}
-                      Search Google Business
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Search Results Area */}
-                <div className="border border-slate-100 rounded-lg bg-white overflow-hidden min-h-[120px] flex flex-col justify-center">
-                  {!hasSearchedGoogle && !isSearchingGoogle ? (
-                    <div className="text-center py-6 px-4 space-y-1">
-                      <div className="h-9 w-9 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 mx-auto">
-                        <Search className="h-4 w-4" />
-                      </div>
-                      <p className="text-xs font-bold text-slate-700">No results yet</p>
-                      <p className="text-[10px] text-slate-400">{'Click "Search Google Business" to find your listing.'}</p>
-                    </div>
-                  ) : isSearchingGoogle ? (
-                    <div className="text-center py-8">
-                      <Loader2 className="h-6 w-6 animate-spin text-blue-500 mx-auto mb-2" />
-                      <p className="text-[11px] text-slate-400 font-medium">Scanning Google listings...</p>
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-slate-50">
-                      {googleSearchResults.map((result) => {
-                        const isSelected = selectedGoogleId === result.id;
-                        return (
-                          <div 
-                            key={result.id}
-                            onClick={() => handleSelectGoogleResult(result)}
-                            className={`p-3.5 flex items-start gap-3 hover:bg-slate-50/50 transition-colors cursor-pointer ${
-                              isSelected ? "bg-blue-50/30 border-l-2 border-blue-600" : ""
-                            }`}
-                          >
-                            <div className="mt-0.5 h-7 w-7 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600 shrink-0">
-                              <Building className="h-4 w-4" />
-                            </div>
-                            <div className="flex-1 min-w-0 space-y-0.5">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <h4 className="text-xs font-bold text-slate-800">{result.name}</h4>
-                                {result.verified && (
-                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-50 text-emerald-600 border border-emerald-100/50 uppercase tracking-wider">
-                                    <Check className="h-2 w-2 stroke-[4]" /> Verified
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-[10px] text-slate-500 truncate">{result.address}</p>
-                            </div>
-                            <div className="h-5 w-5 rounded-full border border-slate-200 flex items-center justify-center bg-white shrink-0 self-center">
-                              {isSelected && <Check className="h-3 w-3 text-blue-600 stroke-[3]" />}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Location Fields Form */}
-              <div className="space-y-4 pt-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="address" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
-                    Business Address
-                  </Label>
-                  <Input
-                    id="address"
-                    type="text"
-                    value={address}
-                    onChange={(e) => {
-                      setAddress(e.target.value);
-                      if (step2Errors.address) {
-                        setStep2Errors(prev => ({ ...prev, address: undefined }));
-                      }
-                    }}
-                    placeholder="Street, City, State"
-                    className={step2Errors.address ? "border-rose-300 focus:border-rose-500 focus:ring-rose-500/10" : ""}
-                  />
-                  {step2Errors.address && (
-                    <p className="text-xs text-rose-600 font-semibold flex items-center gap-1.5 animate-in fade-in duration-100">
-                      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                      {step2Errors.address}
-                    </p>
-                  )}
-                </div>
-
+                {/* Website & Phone optional grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="phone" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
-                      Phone Number
-                    </Label>
-                    <div className="relative">
-                      <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
-                      <Input
-                        id="phone"
-                        type="text"
-                        value={phone}
-                        onChange={(e) => {
-                          setPhone(e.target.value);
-                          if (step2Errors.phone) {
-                            setStep2Errors(prev => ({ ...prev, phone: undefined }));
-                          }
-                        }}
-                        placeholder="+1 (415) 555-0142"
-                        className={`pl-10.5 ${step2Errors.phone ? "border-rose-300 focus:border-rose-500 focus:ring-rose-500/10" : ""}`}
-                      />
-                    </div>
-                    {step2Errors.phone && (
-                      <p className="text-xs text-rose-600 font-semibold flex items-center gap-1.5 animate-in fade-in duration-100">
-                        <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                        {step2Errors.phone}
-                      </p>
-                    )}
-                  </div>
-
                   <div className="space-y-1.5">
                     <Label htmlFor="website" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
                       Website <span className="text-slate-400 font-normal lowercase">(optional)</span>
@@ -798,236 +762,533 @@ export default function OnboardingPage() {
                       <Input
                         id="website"
                         type="text"
-                        value={website}
-                        onChange={(e) => setWebsite(e.target.value)}
+                        value={state.businessInfo.website}
+                        onChange={(e) => updateBusinessInfo({ website: e.target.value })}
                         placeholder="www.example.com"
                         className="pl-10.5"
                       />
                     </div>
                   </div>
-                </div>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="description" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
-                    Business Description <span className="text-slate-400 font-normal lowercase">(optional)</span>
-                  </Label>
-                  <textarea
-                    id="description"
-                    rows={3}
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="e.g. Cozy neighborhood coffee shop serving artisanal espresso, fresh pastries, and community vibes since 2018."
-                    className="flex w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-150 resize-y"
-                  />
+                  <div className="space-y-1.5">
+                    <Label htmlFor="phone" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                      Phone <span className="text-slate-400 font-normal lowercase">(optional)</span>
+                    </Label>
+                    <div className="relative">
+                      <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+                      <Input
+                        id="phone"
+                        type="text"
+                        value={state.businessInfo.phone}
+                        onChange={(e) => updateBusinessInfo({ phone: e.target.value })}
+                        placeholder="+1 (415) 555-0142"
+                        className="pl-10.5"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           )}
 
           {/* ========================================================
-              STEP 3: Analysis Preferences Card
-              ======================================================== */}
-          {currentStep === 3 && (
-            <div className="bg-white border border-slate-100 rounded-2xl p-6 md:p-8 shadow-sm space-y-6 animate-in fade-in duration-200">
-              <div className="flex items-center gap-3 pb-3 border-b border-slate-50">
-                <div className="h-10 w-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
-                  <FileText className="h-5 w-5" />
-                </div>
-                <div>
-                  <h2 className="text-base font-bold text-slate-800">Analysis Preferences</h2>
-                  <p className="text-[11px] text-slate-400">Configure target metrics and prioritize scanning focus.</p>
-                </div>
-              </div>
-
-              {/* Radius preferences */}
-              <div className="space-y-2">
-                <div>
-                  <Label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                    Radius
-                  </Label>
-                  <p className="text-[11px] text-slate-400">How far around your location should we analyze?</p>
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {["1 mile", "3 miles", "5 miles", "10 miles"].map((item) => {
-                    const isSelected = radius === item;
-                    return (
-                      <button
-                        key={item}
-                        type="button"
-                        onClick={() => setRadius(item)}
-                        className={`py-3 px-4 border rounded-xl text-xs font-bold transition-all cursor-pointer text-center ${
-                          isSelected
-                            ? "bg-blue-50/50 border-blue-600 text-blue-700 shadow-sm"
-                            : "border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
-                        }`}
-                      >
-                        {item}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Competitor Count */}
-              <div className="space-y-2">
-                <div>
-                  <Label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                    Competitor Count
-                  </Label>
-                  <p className="text-[11px] text-slate-400">Number of competitors to track and benchmark against.</p>
-                </div>
-                <div className="grid grid-cols-3 gap-3 max-w-lg">
-                  {["5", "10", "20"].map((count) => {
-                    const isSelected = competitorCount === count;
-                    return (
-                      <button
-                        key={count}
-                        type="button"
-                        onClick={() => setCompetitorCount(count)}
-                        className={`py-3 px-4 border rounded-xl text-xs font-bold transition-all cursor-pointer text-center ${
-                          isSelected
-                            ? "bg-blue-50/50 border-blue-600 text-blue-700 shadow-sm"
-                            : "border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
-                        }`}
-                      >
-                        {count}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Focus Areas */}
-              <div className="space-y-2">
-                <div>
-                  <Label className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                    Focus Areas
-                  </Label>
-                  <p className="text-[11px] text-slate-400">Select one or more areas for the AI to prioritize.</p>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  {["Reviews", "SEO", "Competitors", "Website", "Local Presence", "Pricing"].map((area) => {
-                    const isSelected = focusAreas.includes(area);
-                    return (
-                      <button
-                        key={area}
-                        type="button"
-                        onClick={() => handleToggleFocusArea(area)}
-                        className={`p-3.5 border rounded-xl text-xs font-bold flex items-center justify-between transition-all cursor-pointer ${
-                          isSelected
-                            ? "bg-blue-50/50 border-blue-600 text-blue-700 shadow-sm"
-                            : "border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
-                        }`}
-                      >
-                        <span>{area}</span>
-                        {isSelected && <Check className="h-4 w-4 text-blue-600 stroke-[3] shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ========================================================
-              STEP 4: Confirmation Card
+              STEP 4: Business Lookup (Search & select mock listing)
               ======================================================== */}
           {currentStep === 4 && (
-            <div className="bg-white border border-slate-100 rounded-2xl p-6 md:p-8 shadow-sm space-y-6 animate-in fade-in duration-200">
+            <div className="bg-white border border-slate-100 rounded-3xl p-6 md:p-8 shadow-sm space-y-6 animate-in fade-in zoom-in-95 duration-200">
               <div className="flex items-center gap-3 pb-3 border-b border-slate-50">
                 <div className="h-10 w-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
-                  <Sparkles className="h-5 w-5" />
+                  <Search className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-base font-bold text-slate-800">Confirm & Launch</h2>
-                  <p className="text-[11px] text-slate-400">Review your profile details before kicking off AI scanning.</p>
+                  <h2 className="text-base font-bold text-slate-800">Business Lookup</h2>
+                  <p className="text-[11px] text-slate-400">Search or select your business listing from Google Maps mock registry.</p>
                 </div>
               </div>
 
-              {/* Confirmation Details Summary */}
-              <div className="bg-slate-50/40 border border-slate-100 rounded-xl p-5 md:p-6 space-y-6">
-                <div className="flex items-center gap-3 pb-4 border-b border-slate-100/50">
-                  <div className="h-11 w-11 rounded-xl bg-blue-600 flex items-center justify-center text-white shrink-0 shadow-sm">
-                    <Building className="h-6 w-6" />
+              {/* Search Bar */}
+              <div className="relative">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+                <Input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  placeholder="Type business name, address or category..."
+                  className="pl-10.5 bg-slate-50/50 focus:bg-white transition-colors"
+                />
+              </div>
+
+              {/* Results Container */}
+              <div className="space-y-4">
+                {isLoadingResults ? (
+                  // Loading State Skeletons
+                  <div className="space-y-3">
+                    <BusinessCardSkeleton />
+                    <BusinessCardSkeleton />
+                    <BusinessCardSkeleton />
                   </div>
-                  <div className="flex-1 min-w-0 space-y-0.5">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-sm font-extrabold text-slate-800 truncate">{businessName || "Your Business"}</h3>
-                      {isVerified && (
-                        <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500 text-white shadow-sm uppercase tracking-wider">
-                          <Check className="h-2 w-2 stroke-[4]" /> Verified
-                        </span>
-                      )}
+                ) : !searchQuery && !showDefaults ? (
+                  // Empty State
+                  <div className="border border-dashed border-slate-200 rounded-2xl p-8 text-center space-y-4 bg-slate-50/30">
+                    <div className="h-12 w-12 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 mx-auto">
+                      <Compass className="h-6 w-6" />
                     </div>
-                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">{category || "Uncategorized"}</p>
+                    <div className="space-y-1 max-w-sm mx-auto">
+                      <h3 className="text-xs font-bold text-slate-700">Search for your business listing</h3>
+                      <p className="text-[10px] text-slate-400 leading-normal">
+                        Type in the search bar above to look up your storefront, or reveal all mock location files instantly.
+                      </p>
+                    </div>
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      onClick={() => setShowDefaults(true)}
+                      className="h-9 px-4 text-xs font-bold mx-auto flex items-center gap-1.5"
+                    >
+                      Scan Nearby Storefronts
+                    </Button>
                   </div>
-                </div>
-
-                {/* Grid attributes */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 text-xs">
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Location</span>
-                    <p className="font-semibold text-slate-700">{address || "—"}</p>
+                ) : filteredBusinesses.length === 0 ? (
+                  // No Results State
+                  <div className="border border-dashed border-slate-200 rounded-2xl p-8 text-center space-y-4 bg-slate-50/30">
+                    <div className="h-12 w-12 rounded-full bg-rose-50 flex items-center justify-center text-rose-500 mx-auto">
+                      <AlertCircle className="h-6 w-6" />
+                    </div>
+                    <div className="space-y-1 max-w-sm mx-auto">
+                      <h3 className="text-xs font-bold text-slate-700">No Listings Match &apos;{searchQuery}&apos;</h3>
+                      <p className="text-[10px] text-slate-400 leading-normal">
+                        We couldn&apos;t find matching storefront records in this ZIP code radius. Try searching for &quot;coffee&quot;, &quot;dental&quot;, or reset filtering.
+                      </p>
+                    </div>
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      onClick={() => {
+                        setSearchQuery("");
+                        setDebouncedQuery("");
+                        setShowDefaults(true);
+                      }}
+                      className="h-9 px-4 text-xs font-bold mx-auto"
+                    >
+                      Reset Search filter
+                    </Button>
                   </div>
-                  
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Website</span>
-                    <p className="font-semibold text-slate-700">{website || "—"}</p>
-                  </div>
-
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Radius</span>
-                    <p className="font-semibold text-slate-700">{radius}</p>
-                  </div>
-
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Competitors</span>
-                    <p className="font-semibold text-slate-700">{competitorCount} target business(es)</p>
-                  </div>
-                </div>
-
-                {/* Focus Areas pills */}
-                <div className="space-y-2 pt-2 border-t border-slate-100/50">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Selected Analysis</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {focusAreas.length > 0 ? (
-                      focusAreas.map(area => (
-                        <span 
-                          key={area}
-                          className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200/40"
+                ) : (
+                  // Business card listings
+                  <div className="grid grid-cols-1 gap-3.5">
+                    {filteredBusinesses.map((biz) => {
+                      const isSelected = state.selectedBusiness?.id === biz.id;
+                      return (
+                        <div
+                          key={biz.id}
+                          onClick={() => {
+                            updateSelectedBusiness(biz);
+                            setSubmitError(null);
+                          }}
+                          className={`border rounded-2xl p-4.5 bg-white flex items-start gap-4 transition-all duration-200 cursor-pointer shadow-sm relative group hover:border-blue-200 ${
+                            isSelected 
+                              ? "border-blue-600 ring-2 ring-blue-500/10 bg-blue-50/10 shadow-blue-500/5" 
+                              : "border-slate-100 hover:shadow"
+                          }`}
                         >
-                          {area}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="text-[11px] text-slate-400 italic">No analysis areas selected</span>
-                    )}
+                          <div className={`h-11 w-11 rounded-xl flex items-center justify-center shrink-0 transition-colors ${
+                            isSelected ? "bg-blue-600 text-white" : "bg-slate-50 text-slate-500 group-hover:bg-slate-100"
+                          }`}>
+                            <Building className="h-5 w-5" />
+                          </div>
+
+                          <div className="flex-1 min-w-0 space-y-1.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="text-xs font-extrabold text-slate-800 tracking-tight">{biz.name}</h4>
+                              {biz.verified && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-50 text-emerald-600 border border-emerald-100/50 uppercase tracking-wider">
+                                  <ShieldCheck className="h-3 w-3 stroke-[2.5]" /> Verified
+                                </span>
+                              )}
+                            </div>
+
+                            <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">{biz.category}</p>
+
+                            <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-medium">
+                              <div className="flex items-center text-amber-400">
+                                {[...Array(5)].map((_, i) => (
+                                  <Star 
+                                    key={i} 
+                                    className={`h-3 w-3 ${i < Math.floor(biz.rating) ? "fill-amber-400 stroke-amber-400" : "stroke-slate-300"}`} 
+                                  />
+                                ))}
+                              </div>
+                              <span className="font-bold text-slate-700">{biz.rating}</span>
+                              <span className="text-slate-400 font-normal">({biz.reviewCount} reviews)</span>
+                            </div>
+
+                            <p className="text-[10px] text-slate-500 leading-snug font-medium flex items-center gap-1.5 pt-0.5">
+                              <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                              <span>{biz.address}</span>
+                            </p>
+
+                            <div className="flex items-center gap-x-4 gap-y-1.5 flex-wrap text-[10px] text-slate-400 pt-1">
+                              {biz.website && (
+                                <span className="flex items-center gap-1">
+                                  <Globe className="h-3 w-3 text-slate-400" />
+                                  <span>{biz.website}</span>
+                                </span>
+                              )}
+                              {biz.phone && (
+                                <span className="flex items-center gap-1">
+                                  <Phone className="h-3 w-3 text-slate-400" />
+                                  <span>{biz.phone}</span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 self-center">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                updateSelectedBusiness(biz);
+                                setSubmitError(null);
+                              }}
+                              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                                isSelected
+                                  ? "bg-blue-600 text-white shadow-sm"
+                                  : "bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-100"
+                              }`}
+                            >
+                              {isSelected ? "Selected" : "Select Business"}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================
+              STEP 5: Business Verification (Editable Listing Form)
+              ======================================================== */}
+          {currentStep === 5 && (
+            <div className="bg-white border border-slate-100 rounded-3xl p-6 md:p-8 shadow-sm space-y-6 animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-center gap-3 pb-3 border-b border-slate-50">
+                <div className="h-10 w-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
+                  <CheckCircle className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-800">Verify Business Listing</h2>
+                  <p className="text-[11px] text-slate-400">Confirm or update your business profile details before scanning.</p>
                 </div>
               </div>
 
-              {/* Estimated analysis time notice */}
-              <div className="bg-amber-50/40 border border-amber-100/60 rounded-xl p-4 flex gap-3 items-center">
-                <div className="h-8 w-8 rounded-lg bg-amber-50 flex items-center justify-center text-amber-600 shrink-0">
-                  <Clock className="h-4 w-4" />
+              <div className="space-y-4">
+                {/* Editable Business Name */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="v_name" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                    Business Name
+                  </Label>
+                  <Input
+                    id="v_name"
+                    type="text"
+                    value={editName}
+                    onChange={(e) => {
+                      setEditName(e.target.value);
+                      if (verifyErrors.name) setVerifyErrors(prev => ({ ...prev, name: undefined }));
+                    }}
+                    className={verifyErrors.name ? "border-rose-300 focus:border-rose-500" : ""}
+                  />
+                  {verifyErrors.name && (
+                    <p className="text-xs text-rose-600 font-semibold flex items-center gap-1.5">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                      {verifyErrors.name}
+                    </p>
+                  )}
                 </div>
-                <div className="space-y-0.5">
-                  <h4 className="text-xs font-bold text-slate-800">Estimated Analysis Time</h4>
-                  <p className="text-[10px] text-slate-500 leading-snug">
-                    Approximately 3–5 minutes to generate your first report.
-                  </p>
+
+                {/* Editable Category */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="v_category" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                    Business Category
+                  </Label>
+                  <select
+                    id="v_category"
+                    value={editCategory}
+                    onChange={(e) => {
+                      setEditCategory(e.target.value);
+                      if (verifyErrors.category) setVerifyErrors(prev => ({ ...prev, category: undefined }));
+                    }}
+                    className={`flex h-11 w-full rounded-xl border bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all ${
+                      verifyErrors.category ? "border-rose-300" : "border-slate-200"
+                    }`}
+                  >
+                    <option value="">Select Category...</option>
+                    {CATEGORIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                  {verifyErrors.category && (
+                    <p className="text-xs text-rose-600 font-semibold flex items-center gap-1.5">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                      {verifyErrors.category}
+                    </p>
+                  )}
+                </div>
+
+                {/* Editable Address */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="v_address" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                    Full Physical Address
+                  </Label>
+                  <Input
+                    id="v_address"
+                    type="text"
+                    value={editAddress}
+                    onChange={(e) => {
+                      setEditAddress(e.target.value);
+                      if (verifyErrors.address) setVerifyErrors(prev => ({ ...prev, address: undefined }));
+                    }}
+                    placeholder="Street Address, City, State, ZIP"
+                    className={verifyErrors.address ? "border-rose-300 focus:border-rose-500" : ""}
+                  />
+                  {verifyErrors.address && (
+                    <p className="text-xs text-rose-600 font-semibold flex items-center gap-1.5">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                      {verifyErrors.address}
+                    </p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Website */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="v_website" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                      Website
+                    </Label>
+                    <Input
+                      id="v_website"
+                      type="text"
+                      value={editWebsite}
+                      onChange={(e) => setEditWebsite(e.target.value)}
+                    />
+                  </div>
+
+                  {/* Phone */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="v_phone" className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                      Phone Number
+                    </Label>
+                    <Input
+                      id="v_phone"
+                      type="text"
+                      value={editPhone}
+                      onChange={(e) => setEditPhone(e.target.value)}
+                    />
+                  </div>
                 </div>
               </div>
             </div>
           )}
 
           {/* ========================================================
-              Footer Buttons
+              STEP 6: Analysis Preferences
               ======================================================== */}
-          <div className="flex items-center justify-between pt-4">
-            {/* Back Button */}
-            <div>
-              {currentStep > 1 && (
+          {currentStep === 6 && (
+            <div className="bg-white border border-slate-100 rounded-3xl p-6 md:p-8 shadow-sm space-y-8 animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-center gap-3 pb-3 border-b border-slate-50">
+                <div className="h-10 w-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
+                  <Zap className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-800">Scan & Analysis Preferences</h2>
+                  <p className="text-[11px] text-slate-400">Configure parameters for local SEO tracking and competitor analysis.</p>
+                </div>
+              </div>
+
+              {/* Radius Card Grid */}
+              <div className="space-y-3">
+                <div className="space-y-0.5">
+                  <Label className="text-xs font-bold text-slate-800 uppercase tracking-wider">Competitor Radius</Label>
+                  <p className="text-[11px] text-slate-400">How far around your physical store should we search for rivals?</p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {[
+                    { value: "3 km", label: "3 km", desc: "Hyper-local search for high density urban walk-ins." },
+                    { value: "5 km", label: "5 km", desc: "Balanced radius ideal for mid-sized cities or districts." },
+                    { value: "10 km", label: "10 km", desc: "Regional scope best for suburban hubs or motor access." }
+                  ].map((opt) => {
+                    const isSel = state.analysisPreferences.radius === opt.value;
+                    return (
+                      <div
+                        key={opt.value}
+                        onClick={() => updateAnalysisPreferences({ radius: opt.value })}
+                        className={`border rounded-2xl p-4.5 cursor-pointer text-left transition-all relative ${
+                          isSel 
+                            ? "border-blue-600 bg-blue-50/10 ring-2 ring-blue-500/10 shadow-sm" 
+                            : "border-slate-100 hover:border-slate-200 hover:bg-slate-50/40"
+                        }`}
+                      >
+                        <h4 className="text-xs font-extrabold text-slate-800 mb-1">{opt.label}</h4>
+                        <p className="text-[10px] text-slate-500 leading-snug">{opt.desc}</p>
+                        {isSel && <Check className="absolute right-3.5 top-3.5 h-4.5 w-4.5 text-blue-600 stroke-[3]" />}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Count Card Grid */}
+              <div className="space-y-3">
+                <div className="space-y-0.5">
+                  <Label className="text-xs font-bold text-slate-800 uppercase tracking-wider">Competitor Count</Label>
+                  <p className="text-[11px] text-slate-400">The total number of competitor locations to track on your dashboards.</p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {[
+                    { value: "5", label: "5 competitors", desc: "Focused target metrics on your immediate primary rivals." },
+                    { value: "10", label: "10 competitors", desc: "Industry standard mapping for regional benchmarks." },
+                    { value: "20", label: "20 competitors", desc: "Full market scan including distant or minor players." }
+                  ].map((opt) => {
+                    const isSel = state.analysisPreferences.competitorCount === opt.value;
+                    return (
+                      <div
+                        key={opt.value}
+                        onClick={() => updateAnalysisPreferences({ competitorCount: opt.value })}
+                        className={`border rounded-2xl p-4.5 cursor-pointer text-left transition-all relative ${
+                          isSel 
+                            ? "border-blue-600 bg-blue-50/10 ring-2 ring-blue-500/10 shadow-sm" 
+                            : "border-slate-100 hover:border-slate-200 hover:bg-slate-50/40"
+                        }`}
+                      >
+                        <h4 className="text-xs font-extrabold text-slate-800 mb-1">{opt.label}</h4>
+                        <p className="text-[10px] text-slate-500 leading-snug">{opt.desc}</p>
+                        {isSel && <Check className="absolute right-3.5 top-3.5 h-4.5 w-4.5 text-blue-600 stroke-[3]" />}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Depth Card Grid */}
+              <div className="space-y-3">
+                <div className="space-y-0.5">
+                  <Label className="text-xs font-bold text-slate-800 uppercase tracking-wider">Analysis Depth</Label>
+                  <p className="text-[11px] text-slate-400">Specifies the scan coverage, detailed AI auditing, and processing time.</p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {[
+                    { value: "Quick", label: "Quick Scan", desc: "Summarized ratings, reviews count, and listing scores. Fast setup." },
+                    { value: "Standard", label: "Standard audit", desc: "Detailed review sentiments, SEO keyword ratings, and location indexes." },
+                    { value: "Deep", label: "Deep AI Audit", desc: "Full competitive index mapping, reviews NLP audit, pricing plans, and tips." }
+                  ].map((opt) => {
+                    const isSel = state.analysisPreferences.depth === opt.value;
+                    return (
+                      <div
+                        key={opt.value}
+                        onClick={() => updateAnalysisPreferences({ depth: opt.value })}
+                        className={`border rounded-2xl p-4.5 cursor-pointer text-left transition-all relative ${
+                          isSel 
+                            ? "border-blue-600 bg-blue-50/10 ring-2 ring-blue-500/10 shadow-sm" 
+                            : "border-slate-100 hover:border-slate-200 hover:bg-slate-50/40"
+                        }`}
+                      >
+                        <h4 className="text-xs font-extrabold text-slate-800 mb-1">{opt.label}</h4>
+                        <p className="text-[10px] text-slate-500 leading-snug">{opt.desc}</p>
+                        {isSel && <Check className="absolute right-3.5 top-3.5 h-4.5 w-4.5 text-blue-600 stroke-[3]" />}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================
+              STEP 7: Success Page (Complete)
+              ======================================================== */}
+          {currentStep === 7 && (
+            <div className="bg-white border border-slate-100 rounded-3xl p-8 md:p-12 shadow-sm flex flex-col items-center text-center space-y-6 animate-in fade-in zoom-in-95 duration-200">
+              
+              {/* Success Illustration (SVG Graphic) */}
+              <div className="relative">
+                <div className="absolute inset-0 bg-blue-400/10 rounded-full blur-xl scale-125 animate-pulse" />
+                <div className="relative h-20 w-20 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-500 shadow-md">
+                  <CheckCircle className="h-10 w-10 stroke-[2]" />
+                </div>
+              </div>
+
+              <div className="space-y-2 max-w-md">
+                <h2 className="text-2xl font-black text-slate-900 tracking-tight">Your business is ready.</h2>
+                <p className="text-xs text-slate-500 leading-relaxed font-medium">
+                  CompeteWell can now analyze your business and nearby competitors. All background scrapers have been dispatched.
+                </p>
+              </div>
+
+              {/* Confirmation Details Card */}
+              <div className="border border-slate-100 bg-slate-50/40 rounded-2xl p-5 max-w-sm w-full text-left space-y-3.5 text-xs text-slate-600 font-semibold shadow-inner">
+                <div className="flex items-center gap-2 pb-2.5 border-b border-slate-100">
+                  <div className="h-6 w-6 rounded bg-blue-600 text-white flex items-center justify-center text-[10px] font-bold">
+                    <Building className="h-3.5 w-3.5" />
+                  </div>
+                  <span className="font-extrabold text-slate-800 text-xs truncate">
+                    {state.selectedBusiness?.name || state.businessInfo.name}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-[10px]">
+                  <div className="space-y-0.5">
+                    <span className="text-slate-400 font-bold uppercase tracking-wider block">ZIP Code</span>
+                    <span className="text-slate-700 font-extrabold">{state.businessInfo.zipCode}</span>
+                  </div>
+                  <div className="space-y-0.5">
+                    <span className="text-slate-400 font-bold uppercase tracking-wider block">Radius</span>
+                    <span className="text-slate-700 font-extrabold">{state.analysisPreferences.radius}</span>
+                  </div>
+                  <div className="space-y-0.5">
+                    <span className="text-slate-400 font-bold uppercase tracking-wider block">Competitors</span>
+                    <span className="text-slate-700 font-extrabold">{state.analysisPreferences.competitorCount}</span>
+                  </div>
+                  <div className="space-y-0.5">
+                    <span className="text-slate-400 font-bold uppercase tracking-wider block">Depth</span>
+                    <span className="text-slate-700 font-extrabold">{state.analysisPreferences.depth}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <Button
+                  type="button"
+                  onClick={handleGoToDashboard}
+                  disabled={isSubmitting}
+                  className="h-12 px-8 bg-blue-600 text-white hover:bg-blue-700 rounded-xl text-sm font-extrabold shadow-lg shadow-blue-500/10"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="h-4.5 w-4.5 animate-spin" /> Finalizing...
+                    </>
+                  ) : (
+                    <>
+                      Go to Dashboard <ArrowRight className="h-4.5 w-4.5" />
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ========================================================
+              Footer Buttons (Desktop/Tablet)
+              ======================================================== */}
+          {currentStep < 7 && (
+            <div className="hidden md:flex items-center justify-between pt-6 border-t border-slate-100">
+              {currentStep > 1 ? (
                 <Button 
                   type="button" 
                   variant="outline" 
@@ -1037,42 +1298,93 @@ export default function OnboardingPage() {
                 >
                   <ArrowLeft className="h-3.5 w-3.5" /> Back
                 </Button>
-              )}
-            </div>
+              ) : <div />}
 
-            {/* Continue or Start AI Analysis Button */}
-            <div>
-              {currentStep < 4 ? (
+              {currentStep < 6 ? (
                 <Button 
                   type="button" 
                   onClick={handleContinue}
-                  className="flex items-center gap-1.5 bg-blue-600 text-white hover:bg-blue-700 h-10 px-5 text-xs font-bold shadow-md shadow-blue-500/10"
+                  className="flex items-center gap-1.5 bg-blue-600 text-white hover:bg-blue-700 h-10 px-5 text-xs font-bold shadow-md shadow-blue-500/10 cursor-pointer"
                 >
                   Continue <ArrowRight className="h-3.5 w-3.5" />
                 </Button>
               ) : (
                 <Button 
                   type="button" 
-                  onClick={handleStartAnalysis}
+                  onClick={handleFinishSetup}
                   disabled={isSubmitting}
-                  className="flex items-center gap-1.5 bg-blue-600 text-white hover:bg-blue-700 h-10 px-5 text-xs font-bold shadow-md shadow-blue-500/10"
+                  className="flex items-center gap-1.5 bg-blue-600 text-white hover:bg-blue-700 h-10 px-5 text-xs font-bold shadow-md shadow-blue-500/10 cursor-pointer"
                 >
                   {isSubmitting ? (
                     <>
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Launching Scan…
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Setup finishing...
                     </>
                   ) : (
                     <>
-                      <Sparkles className="h-3.5 w-3.5" /> Start AI Analysis
+                      Finish Setup <Sparkles className="h-3.5 w-3.5" />
                     </>
                   )}
                 </Button>
               )}
             </div>
-          </div>
+          )}
+
+          {/* ========================================================
+              Sticky Footer Buttons (Mobile Screen)
+              ======================================================== */}
+          {currentStep < 7 && (
+            <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100/80 p-4 z-40 flex items-center justify-between shadow-2xl">
+              {currentStep > 1 ? (
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  onClick={handleBack} 
+                  disabled={isSubmitting}
+                  className="flex items-center gap-1.5 h-11 px-4 text-xs font-bold text-slate-600 cursor-pointer"
+                >
+                  <ArrowLeft className="h-4 w-4" /> Back
+                </Button>
+              ) : <div />}
+
+              {currentStep < 6 ? (
+                <Button 
+                  type="button" 
+                  onClick={handleContinue}
+                  className="flex items-center gap-1.5 bg-blue-600 text-white hover:bg-blue-700 h-11 px-6 text-xs font-bold shadow-md cursor-pointer"
+                >
+                  Continue <ArrowRight className="h-4 w-4" />
+                </Button>
+              ) : (
+                <Button 
+                  type="button" 
+                  onClick={handleFinishSetup}
+                  disabled={isSubmitting}
+                  className="flex items-center gap-1.5 bg-blue-600 text-white hover:bg-blue-700 h-11 px-6 text-xs font-bold shadow-md cursor-pointer"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" /> Launching Setup...
+                    </>
+                  ) : (
+                    <>
+                      Finish Setup <Sparkles className="h-4 w-4" />
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+          )}
 
         </div>
       </main>
     </div>
+  );
+}
+
+export default function OnboardingPage() {
+  return (
+    <OnboardingProvider>
+      <OnboardingWizard />
+    </OnboardingProvider>
   );
 }
